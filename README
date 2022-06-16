@@ -1,0 +1,287 @@
+What is tdj4?
+------------
+The letters in "tdj4" stand for "The Daily Journal". It is a PIM program, and
+is also the name of the binary executable. It is written using the Qt toolkit from
+www.qt-project.org.
+
+This is version 4-0.1.
+
+More information below, if you still want to read on.
+
+What does PIM mean?
+-------------------
+Personal Information Manager (I think), a program which manages daily notes,
+appointments, alarms, to-do lists, contacts, addresses, etc.
+
+What can it do, in its present form?
+------------------------------------
+If you are in the habit of keeping daily notes, or a diary, or a journal  of
+your activities, tdj can keep them organised and accessible.
+
+That's nice, but does it ever do anything useful?
+-------------------------------------------------
+If it does, it does it when I'm not looking. Besides, if it did, do you think
+I would be giving it away free?
+
+While there is no guarantee that it will do anything useful, or anything at all,
+there is every probability of the version number increasing in the future as
+and when I get the time to add more features (especially if anyone asks).
+
+How do I use it?
+----------------
+The user interface is basically a nice, very versatile calendar, with an editor
+capable of handling rich text.
+
+You can store your thoughts for a particular day by clicking on the appropriate
+date, and entering the data into the editor at the right. To retrieve the notes
+for a particular day, click on the desired date. The same editor window displays
+the notes, and you can add to or modify the text if needed.
+
+There is a row of tabs which give access to the various components of the PIM.
+
+You can bring up your appointment table for the current day and you can add and
+make changes to or delete any appointment.
+
+You can maintain multiple to-do lists, a table of anniversaries as well as names
+and addresses of your contacts, sorted into any organized set of categories of
+your choice.
+
+Selecting these tabs will display windows where you can enter, modify, or delete
+data.
+
+There is a manual also. Read the file "tdjhelp.pdf" in the downloaded package for
+more details.
+
+tdj4 is a small and handy program, and takes up very little space on the desktop,
+as wellas your hard disk.
+
+Availability
+------------
+The Daily Journal is available as source code to compile on your own machine, or
+as a package containing binaries to install and use.
+
+Compiling the source
+--------------------
+Untar and unzip the downloaded package with the command:
+
+tar -zxvf tdj4-dist.tar.gz
+
+This will create a subdirectory called “tdj4-dist” and extract all the files there.
+
+If you are using QtCreator, the project file to load into QtCreator will be
+available in this location. QtCreator and the development libraries of Qt are
+available from www.qt-project.org. Get the latest version, and install it somewhere
+in your home directory.
+
+Ensure that the header file for the GNU Cryptographic library, gcrypt.h, and the library,
+libgcrypt.so, are both available on your machine. They can be found from the GNU website,
+www.gnu.org.
+
+Open QtCreator, and load the project file tdj4.pro which is available in the source
+package. Select the version you want to build (debug version or release version) and hit
+Ctrl-B. If there are no problems, this should build the binary.
+
+The program has been compiled and tested on both versions 4.8.2 and 5.3 of Qt, on
+Debian Linux 7 (Wheezy). It has also been compiled using version 4.8.2 under Ubuntu
+14.04 (Trusty Tahr).
+
+There may be a couple of warnings, which can be ignored, I think, since it does
+compile a running binary. Ctrl-R executes the binary. The binary may be kept in
+directories separate from the source subdirectory, depending on how QtCreator is
+configured. This location will be available within QtCreator.
+
+If you are not using QtCreator, then the Qt libraries and the GNU crypto libraries
+should be pre-installed on your system.
+
+Also required is the g++ compiler and development files, as well as the "make"
+utility. Inside the subdirectory "tdj4-dist" is a Makefile, and running the "make"
+command should build the executable.
+
+When the program is executed, tdj4 searches for a hidden subdirectory called
+“.cryptdj”. If this is absent (which will be the case when it is executed the first
+time) it issues a notification that it will be created. Subsequently all data is
+stored in this subdirectory.
+
+Exit the program and copy the help and image files in the downloaded package to the
+hidden data subdirectory. Either use a file manager or open a terminal and do the
+following from within the tdj4-dist subdirectory:
+
+cp tdjhelp.* ~/.cryptdj
+cp COPYING ~/.cryptdj
+
+Remember to put the dot (".") in the right place. This will make the on-line help
+available when the program is running.
+
+If you are using QtCreator, the location of the locally compiled binary will be
+available from within QtCreator. This will normally be “tdj4-dist”, but may vary if
+you have configured QtCreator differently. From this location copy the binary to a
+place from where everyone working on the computer can run it.
+
+In a terminal window, first become superuser:
+
+su
+<type the root password>
+
+Then change to the subdirectory containing the binary and do:
+
+cp ./tdj4 /usr/local/bin/tdj4
+
+If your preferred language locale is German, and you wish that the program present
+its user interface also in theGerman language, then the file containing the
+translations should be in the same location as the program binary, so copy it there
+as well:
+
+cp ./tdj4_de.qm /usr/local/bin/tdj4_de.qm
+
+Now return to normal user mode by typing:
+
+exit
+
+Installing the binaries under Linux
+-----------------------------------
+If you don't want to compile the binaries yourself, separate packages contain the
+32-bit and 64-bit precompiled binaries of the program. However, they require the
+Qt libraries at run-time. They are quite large and, since they are already available
+on your installation of Linux, have not been included in the binary packages.
+
+However, if the run-time libraries are not present you will need to download and
+install them from the standard repositories of your Linux distribution. This can be
+done using the package manager available on your system.
+
+Follow these steps to find out whether you need the 32-bit or 64-bit binaries:
+
+1. First, open a terminal. Determine the architecture of the kernel running on the
+computer with the command:
+
+arch
+
+or equvalently:
+
+uname -m
+
+If the result is "i386" or "i486" or "i586" or "i686" then the architecture is
+32-bit, and you need to install the package named “tdj4-bin-i686.tar.gz”.
+If the result is "x86_64" the architecture is 64-bit, and you need to install the
+package named “tdj4-bin-amd64.tar.gz”.
+
+2. Download, untar and unzip the package with the command:
+
+tar -zxvf tdj4-bin-XXX.tar.gz
+
+In the above “XXX” stands for one of either “i[3-4-5-6]86” or “amd64”. This will
+create a subdirectory called “tdj4-bin-XXX” and extract all the files there. This
+contains the help file, the license and copyright info, and the executable.
+
+3. Change to the newly created subdirectory:
+
+cd tdj4-bin-XXX
+
+4. Run the binary (you need to type the "dot-slash" before the name):
+
+./tdj4
+
+This will create a hidden subdirectory called ".cryptdj" which is required to store
+the data created by the program.
+
+Exit the program.
+
+9. Copy the help and image files to the hidden data subdirectory. Remember to put
+the dot (".") in the right place:
+
+cp tdjhelp.* ~/.cryptdj
+cp COPYING ~/.cryptdj
+
+This will make the on-line help available when the program is running.
+
+Remember that the precompiled binary requires the Qt run-time libraries as well as
+the GNU crypto library. If these are not found there will be an error message to that
+effect when executing the binary.
+
+You should copy the binary and the translation file to a place which is accessible
+to everyone working on the machine, as described earlier.
+
+Installing the binaries under MS-Windows
+----------------------------------------
+Unlike earlier versions, there are no plans at present of supplying a binary
+compiled under MS-Windows. However, the source code can be compiled using QtCreator
+for Windows, as it is, with no modifications. You need to ensure that the required
+development files are present and accessible to QtCreator.
+
+Changes in version 4-0.1
+------------------------
+1. Added the facility to encrypt user data. This is stored in a subdirectory
+different from the one used by version 3-0.3. Data created by each version can
+coexist without interference, and since the binaries have different names, they
+can also coexist peacefully.
+
+2. Modification of the user manual.
+
+3. One consequence of encryption is that THE FORMAT OF THE DATA FILES IS DIFFERENT.
+You cannot read data created by version 3-0.3 into version 4-0.1. However, you can
+run both the programs together, side by side, and copy-paste information from one
+version to the other.
+
+4. Incorporation of the German language translation in a translation file, which is
+used by the user-interface if the language locale is German.
+
+Changes in version 3-0.3
+------------------------
+1. Added a toolbar and converted the editors from plaintext to rich text. Code for
+this has been shamelessly re-used from the Richtext example in the Qt documentation.
+
+A major consequence of the change from plaintext editors to richtext editors is
+that the data is stored and interpreted as HTML. This means that earlier notes will
+be interpreted as HTML. Since HTML rendering recognizes line breaks and paragraphs
+in a different manner, all line breaks and paragraphs in existing notes will be
+ignored, and you will have see an unbroken stream of text.
+
+The notes, lists and contact data will have to be re-formatted manually.
+
+3. Added the facility to export the notes and lists as plaintext.
+
+4. Removed the facility to convert data created by the FLTK version "fltdj2" to the
+new version 3 format. This is available in version 3-0.2, for those who need to
+convert old data.
+
+Changes in version 3-0.2
+------------------------
+Added compiler directives to detect whether the binary is running under MS-Windows
+or Linux, and to set the data path correctly.
+
+Changes in version 3-0.1
+------------------------
+Converted the user inteface from FLTK to Qt.
+This was a complete program rewrite with modifications of the layout in accordance
+with the new toolkit.
+The notes and appointments data have been split into different files.
+Addition of appointments which repeat daily.
+The program converts fltdj2 data to the new format once when it is newly installed.
+Modification of the user manual.
+
+All versions of The Daily Journal prior to ver. 3 were named "fltdj" and used FLTK,
+"The Fast, Light Toolkit" from www.fltk.org for the user interface.
+
+What is the copying policy?
+---------------------------
+GPL, of course.
+While it is copyright, (C) 2001 onwards, Kartik Patel  the program is also free
+software; you can redistribute it and/or modify it under the terms of the GNU
+General Public License as published by  the Free Software Foundation; either
+version 2 of the License, or (at your option) any later version.  This program
+is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE.  See the GNU General Public License for more details.  You
+will receive a copy of the GNU General Public License along with this program;
+for more information, write to the Free Software  oundation, Inc., 675 Mass
+Ave, Cambridge, MA 02139, USA.
+
+What else?
+----------
+That covers it, more or less. Email me if there is anything left out, or there are
+problems in istallation.
+
+Enjoy!
+
+Kartik Patel
+letapk@gmail.com
+http://kpatel.x10host.com

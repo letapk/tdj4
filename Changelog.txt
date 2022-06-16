@@ -1,0 +1,139 @@
+2015
+14 May - Modified list display code to use sethtml instead of the earlier conversion to Utf8. This preserves
+     user locale and enable umlauts to be displayed. The other editors were already using sethtml.
+     Also modified the insert image code to put the absolute path to the html file from the data
+     directory .cryptdj, instead of the ":" shortcut, which is not working in the 32-bit version.
+2014
+20 November - Backport of 4-0.1 richtext to 3-0.3.
+20 October - Fixed the notes search code to strip away the HTML markup before looking for the search string.
+17 October - The check for zero-length rich text will always fail due to the embedded HTML markup which is not
+    displayed in the editor. To check for empty notes or lists, convert to plaintext and then find the length.
+14 October - After converting editors to rich text, exporting the notes and lists to text was also adding all
+    the HTML markup to the exported files. Fixed by using a QTextDocument to read in the HTML and convert
+    to plain text.
+13 October - Added font selector and font size controls to toolbar. Added code to correctly indicate on the
+    toolbar the format of the text when the cursor position is changed.
+10 October - Added a toolbar and converted the three editors from plaintext to rich text.
+    set_contact was scrambling the contact tree labels if the contact tab was hidden and a contact
+    below a category was directly clicked. Made the tab visible first. Seems to have fixed it.
+5 September - Removed all old references to fltk and conversion of FLTK based data. This one is completely Qt.
+12 August - Modified the Homepath to the data subdirectory under Linux and Windows. It now contains the
+     full path to the data subdirectory.
+     It is set once at the beginning of the program and then used everywhere.
+     Modified conversion code also to access the new variables.
+     A #define is used for TESTING. This accesses a dummy data directory called .tdjtest, instead
+     of using the working data directory.
+7 August - Added compiler directives to acquire the USERPROFILE environment variable for running under
+     Windows, in place of the HOME environment variable under Linux. This is stored in a string called Homepath.
+     Also the conversion of data from fltdj2 to tdj3 is now done only under Linux.
+4 July - Fixed code to display the daily repeating and non-repeating appointments.
+     Added a new class used to sort the rows in the appointments table.
+2 July - Added a checkbox to the first column in appointments table. This is to indicate that the
+     appointment repeats everyday. Repeating appointments are stored in a separate file.
+     Added tooltips to the appointment and anniversary tables.
+2013
+27 December - Bug in formatting the calendar date which grayed out the background for notes with
+     data. Empty notes seem to have a length of 1. Why? Fixed.
+26 December - Added a preference and associated code to select the calendar header color.
+24 December - Added a preference and associated code to show and remove grid lines in the calendar between dates.
+     Added a preference to show or remove the week numbers in the leftmost column.
+     Changed some of the key assignments to avoid repeated letters.
+20 December - Added code to sort the anniversaries in the order in which they occur. As in the case of the
+     To-Do list, any additions or changes while the program runs will be unsorted, but get sorted the next
+     time it is executed.
+31 October - Added code to sort the To-do list when it is first read from file. Any additions to the list
+     while the program runs will be unsorted, but get sorted the next time it is executed.
+     Also added a signal to show both the To-do and Contact list after pressing the enter key when it is highlighted.
+     This enables moving up and down the list using the cursor keys.
+21 August - Debugged alarm related code. Seems to work.
+20 August - In the menu Help/Help callback, added searchpath variable that specifies location of resources.
+     This helps in display of images within the help file.
+     Added functions to issue alarms 5 minutes before appointments.
+14 August - Tuned new category and contact messages.
+     Added code to trap the Alt-F4 keypress that terminates the application. This will call save_and_quit
+     like Alt-File-Exit.
+     Ready to roll? Perhaps.
+13 August - Debugged the logic of the code which colors the date background. The order matters, and only the first
+     call should color the date with the default background, if needed. The later calls overwrite the
+     previous ones.
+     Adjusted layout of the Search tab.
+12 August - Added a button below the calendar displaying today's date and which switches the calendar to today
+     when clicked.
+     Added code to color dates having notes with a lightgray background.
+     Added code to display the currently selected date on the status bar.
+8 August - Added a check for the fltdj2 and qtdj2 subdirs at program start. The qtdj2 subdir is created
+     if absent. If the fltdj2 subdir is present the program does a conversion of the old data.
+     It reads files from the .fltdj2 subdir and writes the data to the .qtdj2 subdirectory in the
+     current format. Works. However, the old appointment data (from 2000) onwards is lost, since fltdj2 does
+     not read the fltdj1 format. New appointments stored using fltdj2	seem to convert properly.
+     The contacts, lists and anniversaries seem to convert without problems.
+     Added code to color the days having appointments with a cyan background. For days with both holidays
+     and appointments (rare!) the appointment color superceded the holiday color.
+6 August - Rearranged prefs tab to create a vbox. This contains the weekstart radiobutton set,
+     the tabstart radiobutton set, as well as the fortune and font buttons. The weekstart and
+     tabstart are also vboxes. The mouse selection works!
+     Added code to search appointments and append results in search box.
+5 August - Bug is radiobutton logic in the search tab.
+     They do not respond to mouse clicks, but respond to hot-keys.
+     Added code to paint anniversaries with a yellow background.
+     Added code to selecte the date for the second anniversary column from a drop down table.
+2 August - Bug in search logic was erasing everything except the results obtained from the last notes
+     file because the text browser was being cleared within the loop. Fixed.
+     Added a drop down combo box to the month column of the anniversary table, using a code snippet
+     from:
+     http://qt-project.org/wiki/Combo_Boxes_in_Item_Views.
+     Works like a charm!
+     Added logic in get_anniversary_items to skip over blank entries.
+1 August - Restructured tabcontainer to contain empty widgets, which are then filled with the rest
+     of the interface items.
+     Added a checkbox and the associated code to set the preference for seeing the output from
+     fortune. It will be displayed in notes that are blank.
+     Added a layout to the preferences tab.
+     Added a button to bring up a font-selector dialog, and to save and restore the selected
+     font as a user preference.
+     Added code to check for a lockfile at program start, and to create one while running, and
+     deleting it when the program terminates. The user gets a notification if a lockfile is
+     detected when the program starts, and is given an opportunity to continue or abort.
+     Added keyboard shortcuts to all the widgets.
+31 July - Debugged search code for notes.
+     Added a window to show the copyright and GNU license file, and a help window to show the
+     user manual.
+     Empty Notes files were being created even when no data was present. Traced to failure to
+     clear note data structures prior to reading the notes files. Fixed.
+30 July - Now the last column stretches to fill the avaialable space in both tables.
+     The anniversary table checks the month to ensure it lies between 1 and 12.
+     Added a search tab, with a search text box. Added code to read and search notes.
+     Contains bugs.
+     Added the home environment. The program will read and write data to .qtdj2 subdirectory
+     in the home account.
+29 July - Added a Preferences tab, and a preferences source file to the project.
+     Added widgets and code to set the first day of the week to be either Sun or Mon.
+     Added a delete button for the lists.
+     Added code to create, delete, read and write lists under the lists tab.
+26 July - Added code to read and write contacts data.
+     Added code to modify tree and tab size when the window size changes. Added minimum height and width
+     to limit the smallest size of the window.
+     Added code to save and restore the program position and window size.
+     Debugged code to write and read back notes and contacts. Converted i/o streams from text to data.
+25 July - You need to set the current item to get the proper parent-child relationship!
+     Added a delete button for the contacts. Tree code seems to be working.
+     Added a status bar to display intelligent messages.
+24 July - Added buttons to insert new categories and contacts.
+23 July - Experimented with layouts and resizing in Designer. Keeping things as they are for the
+     moment.
+22 July - Bug in checking appointment data altered column entries. This was due to not ascertaining
+     whether col == 1 in the else-clause of the if-condition in save_app. Fixed.
+     Added code to fix the width of the description column in appts and anniverss.
+     Need to use layouts to improve the appearance of the UI.
+     Added the tree-related data and a box for the tree container in the UI.
+19 July - Converting data format of notes, anniversaries and appointments and saving
+     each into a separate file.
+18 July - Added anniversaries table and associated code. The table filling and retrieval code
+     has quite a lot of bugs.
+17 July - Split journal and appt data i/o into a separate file.
+16 July - Value returned by QString.size does not take into account the end NULL character.
+     Program segfaulted on displaying the notes. Fixed by increasing the memory
+     allocation for the note to include the NULL.
+     Added  code to fill and display the appointments. Many bugs.
+15 July - Added the appointments tab and some related code.
+12 July - Formal beginning. Coded the mainwindow, calendar, tab container, and notes tab.
