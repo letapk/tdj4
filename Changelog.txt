@@ -1,3 +1,6 @@
+2022
+17 May - Commited and pushed some modifications to peripheral files.
+16 May - Created repository on Github and uploaded files.
 2015
 14 May - Modified list display code to use sethtml instead of the earlier conversion to Utf8. This preserves
      user locale and enable umlauts to be displayed. The other editors were already using sethtml.
