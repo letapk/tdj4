@@ -81,9 +81,8 @@ Open QtCreator, and load the project file tdj4.pro which is available in the sou
 package. Select the version you want to build (debug version or release version) and hit
 Ctrl-B. If there are no problems, this should build the binary.
 
-The program has been compiled and tested on both versions 4.8.2 and 5.3 of Qt, on
-Debian Linux 7 (Wheezy). It has also been compiled using version 4.8.2 under Ubuntu
-14.04 (Trusty Tahr).
+The program has been compiled and tested on version 5.15 of Qt, under Ubuntu
+22.04.
 
 There may be a couple of warnings, which can be ignored, I think, since it does
 compile a running binary. Ctrl-R executes the binary. The binary may be kept in
