@@ -98,7 +98,7 @@ stored in this subdirectory.
 
 Exit the program and copy the help and image files in the downloaded package to the
 hidden data subdirectory. Either use a file manager or open a terminal and do the
-following from within the tdj4-dist subdirectory:
+following from within the tdj4 subdirectory:
 
 cp tdjhelp.* ~/.cryptdj
 cp COPYING ~/.cryptdj
@@ -107,17 +107,13 @@ Remember to put the dot (".") in the right place. This will make the on-line hel
 available when the program is running.
 
 If you are using QtCreator, the location of the locally compiled binary will be
-available from within QtCreator. From this location copy the binary to a
-place from where everyone working on the computer can run it.
+available from within QtCreator. If not, the binary will be in the same location as the
+source files. From this location copy the binary to a place from where everyone working
+on the computer can run it.
 
-In a terminal window, first become superuser:
-
-su
-<type the root password>
-
-Then change to the subdirectory containing the binary and do:
-
-cp ./tdj4 /usr/local/bin/tdj4
+From the subdirectory containing the binary do:
+sudo cp ./tdj4 /usr/local/bin/tdj4
+Enter the password when prompted.
 
 If your preferred language locale is German, and you wish that the program present
 its user interface also in theGerman language, then the file containing the
