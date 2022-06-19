@@ -1,4 +1,5 @@
 2022
+19 May - Rebuild under Qt 5.15.3 on KUbuntu 22.04.
 17 May - Commited and pushed some modifications to peripheral files.
 16 May - Created repository on Github and uploaded files.
 2015
