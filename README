@@ -81,7 +81,7 @@ Open QtCreator, and load the project file tdj4.pro which is available in the sou
 package. Select the version you want to build (debug version or release version) and hit
 Ctrl-B. If there are no problems, this should build the binary.
 
-The program has been compiled and tested on version 5.15 of Qt, under Ubuntu
+The program has been compiled and tested on version 5.15.3 of Qt, under Ubuntu
 22.04.
 
 There may be a couple of warnings, which can be ignored, I think, since it does
@@ -139,9 +139,9 @@ exit
 Installing the binaries under Linux
 -----------------------------------
 If you don't want to compile the binaries yourself, separate packages contain the
-32-bit and 64-bit precompiled binaries of the program. However, they require the
-Qt libraries at run-time. They are quite large and, since they are already available
-on your installation of Linux, have not been included in the binary packages.
+64-bit precompiled binaries of the program. However, they require the
+Qt 5.15 libraries at run-time. They are quite large and, since they are already available
+for your installation of Linux, have not been included in the binary packages.
 
 However, if the run-time libraries are not present you will need to download and
 install them from the standard repositories of your Linux distribution. This can be
@@ -149,31 +149,18 @@ done using the package manager available on your system.
 
 Follow these steps to find out whether you need the 32-bit or 64-bit binaries:
 
-1. First, open a terminal. Determine the architecture of the kernel running on the
-computer with the command:
+1. Download the tar-gzipped file.
 
-arch
+2. Untar and unzip the package with the command:
 
-or equvalently:
+tar -zxvf tdj4-bin-amd64.tar.gz
 
-uname -m
-
-If the result is "i386" or "i486" or "i586" or "i686" then the architecture is
-32-bit, and you need to install the package named “tdj4-bin-i686.tar.gz”.
-If the result is "x86_64" the architecture is 64-bit, and you need to install the
-package named “tdj4-bin-amd64.tar.gz”.
-
-2. Download, untar and unzip the package with the command:
-
-tar -zxvf tdj4-bin-XXX.tar.gz
-
-In the above “XXX” stands for one of either “i[3-4-5-6]86” or “amd64”. This will
-create a subdirectory called “tdj4-bin-XXX” and extract all the files there. This
-contains the help file, the license and copyright info, and the executable.
+This will create a subdirectory called “tdj4-bin-amd64” and extract all the files there.
+This contains the help file, the license and copyright info, and the executable.
 
 3. Change to the newly created subdirectory:
 
-cd tdj4-bin-XXX
+cd tdj4-bin-amd64
 
 4. Run the binary (you need to type the "dot-slash" before the name):
 
@@ -190,21 +177,14 @@ the dot (".") in the right place:
 cp tdjhelp.* ~/.cryptdj
 cp COPYING ~/.cryptdj
 
-This will make the on-line help available when the program is running.
+This will make the on-line help and license available when the program is running.
 
 Remember that the precompiled binary requires the Qt run-time libraries as well as
-the GNU crypto library. If these are not found there will be an error message to that
+the GNU cryptographic library. If these are not found there will be an error message to that
 effect when executing the binary.
 
 You should copy the binary and the translation file to a place which is accessible
 to everyone working on the machine, as described earlier.
-
-Installing the binaries under MS-Windows
-----------------------------------------
-Unlike earlier versions, there are no plans at present of supplying a binary
-compiled under MS-Windows. However, the source code can be compiled using QtCreator
-for Windows, as it is, with no modifications. You need to ensure that the required
-development files are present and accessible to QtCreator.
 
 Changes in version 4-0.1
 ------------------------
@@ -262,7 +242,6 @@ All versions of The Daily Journal prior to ver. 3 were named "fltdj" and used FL
 
 What is the copying policy?
 ---------------------------
-GPL, of course.
 While it is copyright, (C) 2001 onwards, Kartik Patel  the program is also free
 software; you can redistribute it and/or modify it under the terms of the GNU
 General Public License as published by  the Free Software Foundation; either
