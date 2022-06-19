@@ -16,7 +16,7 @@ email                : letapk@gmail.com
 
 */
 
-//Last modified 5 July 2020
+//Last modified 19 June 2022
 
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
