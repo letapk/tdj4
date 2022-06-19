@@ -86,7 +86,7 @@ The binary may be stored locally in a directoriy separate from the source subdir
 depending on how QtCreator is configured. This location will be available within QtCreator.
 
 If you are not using QtCreator, running the comand:
-qmake tdj.pro
+qmake tdj4.pro
 should create a Makefile for your system. Then, running:
 make
 should create a running binary.
@@ -120,9 +120,6 @@ its user interface also in theGerman language, then the file containing the
 translations should be in the same location as the program binary, so copy it there
 as well:
 cp ./tdj4_de.qm /usr/local/bin/tdj4_de.qm
-
-Now return to normal user mode by typing:
-exit
 
 Changes in version 4-0.1
 ------------------------
