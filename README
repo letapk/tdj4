@@ -87,7 +87,7 @@ depending on how QtCreator is configured. This location will be available within
 
 If you are not using QtCreator, running the comand:
 qmake tdj.pro
-should create a Makefile for your system. The, running:
+should create a Makefile for your system. Then, running:
 make
 should create a running binary.
 
