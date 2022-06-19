@@ -107,8 +107,7 @@ Remember to put the dot (".") in the right place. This will make the on-line hel
 available when the program is running.
 
 If you are using QtCreator, the location of the locally compiled binary will be
-available from within QtCreator. This will normally be “tdj4-dist”, but may vary if
-you have configured QtCreator differently. From this location copy the binary to a
+available from within QtCreator. From this location copy the binary to a
 place from where everyone working on the computer can run it.
 
 In a terminal window, first become superuser:
@@ -124,62 +123,10 @@ If your preferred language locale is German, and you wish that the program prese
 its user interface also in theGerman language, then the file containing the
 translations should be in the same location as the program binary, so copy it there
 as well:
-
 cp ./tdj4_de.qm /usr/local/bin/tdj4_de.qm
 
 Now return to normal user mode by typing:
-
 exit
-
-Installing the binaries under Linux
------------------------------------
-If you don't want to compile the binaries yourself, separate packages contain the
-64-bit precompiled binaries of the program. However, they require the
-Qt 5.15 libraries at run-time. They are quite large and, since they are already available
-for your installation of Linux, have not been included in the binary packages.
-
-However, if the run-time libraries are not present you will need to download and
-install them from the standard repositories of your Linux distribution. This can be
-done using the package manager available on your system.
-
-Follow these steps to find out whether you need the 32-bit or 64-bit binaries:
-
-1. Download the tar-gzipped file.
-
-2. Untar and unzip the package with the command:
-
-tar -zxvf tdj4-bin-amd64.tar.gz
-
-This will create a subdirectory called “tdj4-bin-amd64” and extract all the files there.
-This contains the help file, the license and copyright info, and the executable.
-
-3. Change to the newly created subdirectory:
-
-cd tdj4-bin-amd64
-
-4. Run the binary (you need to type the "dot-slash" before the name):
-
-./tdj4
-
-This will create a hidden subdirectory called ".cryptdj" which is required to store
-the data created by the program.
-
-Exit the program.
-
-9. Copy the help and image files to the hidden data subdirectory. Remember to put
-the dot (".") in the right place:
-
-cp tdjhelp.* ~/.cryptdj
-cp COPYING ~/.cryptdj
-
-This will make the on-line help and license available when the program is running.
-
-Remember that the precompiled binary requires the Qt run-time libraries as well as
-the GNU cryptographic library. If these are not found there will be an error message to that
-effect when executing the binary.
-
-You should copy the binary and the translation file to a place which is accessible
-to everyone working on the machine, as described earlier.
 
 Changes in version 4-0.1
 ------------------------
