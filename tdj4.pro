@@ -4,6 +4,8 @@
 #
 #-------------------------------------------------
 
+# Updated 19 June, 2022
+
 QT       += core gui
 
 #This should be uncommented to produce a compile time error
