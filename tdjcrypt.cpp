@@ -16,7 +16,7 @@ email                : letapk@gmail.com
 
 */
 
-//Last modified 21 October 2014
+//Last modified 19 June 2022
 
 #include "tdj.h"
 #include <gcrypt.h>
