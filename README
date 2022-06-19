@@ -62,39 +62,34 @@ as a package containing binaries to install and use.
 
 Compiling the source
 --------------------
-Untar and unzip the downloaded package with the command:
+ALl the source files are available on Github under the following link:
+https://github.com/letapk/tdj4
 
-tar -zxvf tdj4-dist.tar.gz
+The repository is public. Anyone can check out the branch onto her local machine.
 
-This will create a subdirectory called “tdj4-dist” and extract all the files there.
+In addition, you will need the libraries and developement files from Qt, which are
+available from the depository of your Linux distribution or from www.qt.io.
+The current source tree compiles and runs using Qt version 5.15.3.
 
-If you are using QtCreator, the project file to load into QtCreator will be
-available in this location. QtCreator and the development libraries of Qt are
-available from www.qt-project.org. Get the latest version, and install it somewhere
-in your home directory.
+Also required are the development files and libraries of the GNU Cryptographic library.
+They can be found from the GNU website, www.gnu.org, as well as the Linux distribution
+depository.
 
-Ensure that the header file for the GNU Cryptographic library, gcrypt.h, and the library,
-libgcrypt.so, are both available on your machine. They can be found from the GNU website,
-www.gnu.org.
-
-Open QtCreator, and load the project file tdj4.pro which is available in the source
+If you are using QtCreator, load the project file tdj4.pro which is available in the source
 package. Select the version you want to build (debug version or release version) and hit
 Ctrl-B. If there are no problems, this should build the binary.
 
 The program has been compiled and tested on version 5.15.3 of Qt, under Ubuntu
 22.04.
 
-There may be a couple of warnings, which can be ignored, I think, since it does
-compile a running binary. Ctrl-R executes the binary. The binary may be kept in
-directories separate from the source subdirectory, depending on how QtCreator is
-configured. This location will be available within QtCreator.
+The binary may be stored locally in a directoriy separate from the source subdirectory,
+depending on how QtCreator is configured. This location will be available within QtCreator.
 
-If you are not using QtCreator, then the Qt libraries and the GNU crypto libraries
-should be pre-installed on your system.
-
-Also required is the g++ compiler and development files, as well as the "make"
-utility. Inside the subdirectory "tdj4-dist" is a Makefile, and running the "make"
-command should build the executable.
+If you are not using QtCreator, running the comand:
+qmake tdj.pro
+should create a Makefile for your system. The, running:
+make
+should create a running binary.
 
 When the program is executed, tdj4 searches for a hidden subdirectory called
 “.cryptdj”. If this is absent (which will be the case when it is executed the first
