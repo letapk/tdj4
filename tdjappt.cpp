@@ -20,9 +20,7 @@ email                : letapk@gmail.com
 
 #include "tdj.h"
 
-extern Appointment appointment[], dailyappt;
 
-void compact_appointments (int j);
 void sort_appointments (int j);
 int appt_compare (const void *a, const void *b);
 
@@ -35,11 +33,11 @@ int row, i, j, k;
     j = -1;//in case there are no daily appointments
     for (row = 0; row < 48; row++) {
         //find the size of this daily appointment
-        i = dailyappt.apptdesc[row+1].size() + dailyappt.apptime[row+1].size();
+        i = m_store.daily().apptdesc[row+1].size() + m_store.daily().apptime[row+1].size();
         if (i > 0) {//somethng there, so display it
             appcol0[row].setCheckState(Qt::Checked);
-            appcol0[row].setText (dailyappt.apptime[row+1]);
-            appcol1[row].setText (dailyappt.apptdesc[row+1]);
+            appcol0[row].setText (m_store.daily().apptime[row+1]);
+            appcol1[row].setText (m_store.daily().apptdesc[row+1]);
             j = row;
         }
         else {//clear this row
@@ -54,11 +52,11 @@ int row, i, j, k;
     //j+1 is the index of the first blank row in the table
     //this is 0 when j=-1
     for (row = j+1; row < 48; row++) {
-        i = appointment[date_to_show].apptdesc[k].size() + appointment[date_to_show].apptime[k].size();
+        i = m_store.appt(date_to_show).apptdesc[k].size() + m_store.appt(date_to_show).apptime[k].size();
         if (i > 0){
             appcol0[row].setCheckState(Qt::Unchecked);
-            appcol0[row].setText (appointment[date_to_show].apptime[k]);
-            appcol1[row].setText (appointment[date_to_show].apptdesc[k]);
+            appcol0[row].setText (m_store.appt(date_to_show).apptime[k]);
+            appcol1[row].setText (m_store.appt(date_to_show).apptdesc[k]);
             k++;
         }
     }
@@ -138,24 +136,24 @@ int row;
 
     for (row = 0; row < 48; row++) {
         if (appcol0[row].checkState() == Qt::Checked) {//this appointment repeats daily
-            dailyappt.apptime[row+1] = appcol0[row].text();
-            dailyappt.apptdesc[row+1] = appcol1[row].text();
+            m_store.daily().apptime[row+1] = appcol0[row].text();
+            m_store.daily().apptdesc[row+1] = appcol1[row].text();
 
-            appointment[date_to_show].apptime[row+1].clear();
-            appointment[date_to_show].apptdesc[row+1].clear();
+            m_store.appt(date_to_show).apptime[row+1].clear();
+            m_store.appt(date_to_show).apptdesc[row+1].clear();
         }
         else {//this appointment is only for today
-            appointment[date_to_show].apptime[row+1] = appcol0[row].text();
-            appointment[date_to_show].apptdesc[row+1] = appcol1[row].text();
+            m_store.appt(date_to_show).apptime[row+1] = appcol0[row].text();
+            m_store.appt(date_to_show).apptdesc[row+1] = appcol1[row].text();
 
-            dailyappt.apptime[row+1].clear();
-            dailyappt.apptdesc[row+1].clear();
+            m_store.daily().apptime[row+1].clear();
+            m_store.daily().apptdesc[row+1].clear();
         }
     }
     compact_appointments (date_to_show);
 }
 
-void compact_appointments(int j)
+void MainWindow::compact_appointments(int j)
 {
 Appointment spare;
 int row, sparei, i;
@@ -167,21 +165,21 @@ int row, sparei, i;
         spare.apptime[row+1].clear();
         spare.apptdesc[row+1].clear();
 
-        i = appointment[j].apptime[row+1].size() + appointment[j].apptdesc[row+1].size();
+        i = m_store.appt(j).apptime[row+1].size() + m_store.appt(j).apptdesc[row+1].size();
         if (i > 0) {
-            spare.apptdesc[sparei].append(appointment[j].apptdesc[row+1]);
-            spare.apptime[sparei].append(appointment[j].apptime[row+1]);
+            spare.apptdesc[sparei].append(m_store.appt(j).apptdesc[row+1]);
+            spare.apptime[sparei].append(m_store.appt(j).apptime[row+1]);
             sparei++;
             //clear this appointment
-            appointment[j].apptime[row+1].clear();
-            appointment[j].apptdesc[row+1].clear();
+            m_store.appt(j).apptime[row+1].clear();
+            m_store.appt(j).apptdesc[row+1].clear();
          }
     }
 
     //copy the spare array back to the appointments array
     for (i = 1; i < sparei; i++) {
-        appointment[j].apptime[i].append(spare.apptime[i]);
-        appointment[j].apptdesc[i].append(spare.apptdesc[i]);
+        m_store.appt(j).apptime[i].append(spare.apptime[i]);
+        m_store.appt(j).apptdesc[i].append(spare.apptdesc[i]);
     }
 
     //now do the same for the daily appointments
@@ -191,20 +189,20 @@ int row, sparei, i;
         spare.apptime[row+1].clear();
         spare.apptdesc[row+1].clear();
 
-        i = dailyappt.apptime[row+1].size() + dailyappt.apptdesc[row+1].size();
+        i = m_store.daily().apptime[row+1].size() + m_store.daily().apptdesc[row+1].size();
         if (i > 0) {
-            spare.apptdesc[sparei].append(dailyappt.apptdesc[row+1]);
-            spare.apptime[sparei].append(dailyappt.apptime[row+1]);
+            spare.apptdesc[sparei].append(m_store.daily().apptdesc[row+1]);
+            spare.apptime[sparei].append(m_store.daily().apptime[row+1]);
             sparei++;
             //clear this appointment
-            dailyappt.apptime[row+1].clear();
-            dailyappt.apptdesc[row+1].clear();
+            m_store.daily().apptime[row+1].clear();
+            m_store.daily().apptdesc[row+1].clear();
          }
     }
 
     for (i = 1; i < sparei; i++) {
-        dailyappt.apptime[i].append(spare.apptime[i]);
-        dailyappt.apptdesc[i].append(spare.apptdesc[i]);
+        m_store.daily().apptime[i].append(spare.apptime[i]);
+        m_store.daily().apptdesc[i].append(spare.apptdesc[i]);
     }
 }
 

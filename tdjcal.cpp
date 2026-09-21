@@ -22,9 +22,6 @@ email                : letapk@gmail.com
 
 int get_month_int (QString s);
 
-extern Note note[];
-extern Appointment appointment[];
-extern Anniversary anniversary [];
 
 void MainWindow::getdate ()
 //get the selected year, month and date
@@ -98,6 +95,41 @@ int get_month_int (QString s)
     return 0;
 }
 
+void MainWindow::recolor_calendar_date(int i)
+//recolour one calendar date, reapplying the same precedence the startup
+//formatting chain uses (yellow > cyan > lightGray > white), so that editing or
+//displaying a journal entry never wipes an anniversary/appointment colour
+{
+QTextCharFormat f;
+QColor bg;
+int k;
+
+    f = calendar->weekdayTextFormat(Qt::Monday);
+    bg = Qt::white;
+
+    if (m_store.note(i).hasText == true)
+        bg = Qt::lightGray;
+
+    for (k = 1; k <= 48; k++) {//any appointment for this day?
+        if (m_store.appt(i).apptdesc[k].length() > 0) {
+            bg = Qt::cyan;
+            break;
+        }
+    }
+
+    for (k = 1; k < 367; k++) {//any anniversary on this day?
+        if (m_store.ann(k).description.length() != 0
+            && get_month_int (m_store.ann(k).month) == month
+            && m_store.ann(k).date.toInt() == i) {
+            bg = Qt::yellow;
+            break;
+        }
+    }
+
+    f.setBackground(bg);
+    calendar->setDateTextFormat (QDate (year, month, i), f);
+}
+
 void MainWindow::format_anniversaries ()
 //color the dates with anniversaries yellow
 {
@@ -111,10 +143,10 @@ QTextCharFormat f1;
     //loop over all 366 table rows, not just over the days of a (possibly
     //non-leap) year, so that the 29 February entry is never dropped
     for (i = 1; i < 367; i++){
-        if (anniversary[i].description.length() != 0) {
-            j = get_month_int (anniversary[i].month);
+        if (m_store.ann(i).description.length() != 0) {
+            j = get_month_int (m_store.ann(i).month);
             if (j >= 1 && j <= 12) {
-                date = new QDate (calendar->yearShown(), j, anniversary[i].date.toInt());
+                date = new QDate (calendar->yearShown(), j, m_store.ann(i).date.toInt());
                 if (date->isValid() && (j - month) == 0) {
                     calendar->setDateTextFormat(*date, f1);
                 }
@@ -141,7 +173,7 @@ QTextCharFormat f1;
         j = 0;
         date = new QDate (calendar->yearShown(), calendar->monthShown(), i);
         for (row = 0; row < 48; row++) {//loop over all the appointments
-            j += appointment[i].apptdesc[row+1].length();//add the length of their descriptions
+            j += m_store.appt(i).apptdesc[row+1].length();//add the length of their descriptions
             if (j > 0){//some description exists, color it cyan
                 calendar->setDateTextFormat(*date, f1);
             }
@@ -170,7 +202,7 @@ QTextCharFormat f, f1;
 
         //uses the cached hasText flag instead of building a QTextDocument for
         //every day of the month on each keystroke
-        if (note[i].hasText == true){//some note exists, color it lightgray
+        if (m_store.note(i).hasText == true){//some note exists, color it lightgray
             calendar->setDateTextFormat(*date, f1);
         }
         else {//default background is white

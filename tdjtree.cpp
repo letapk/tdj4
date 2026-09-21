@@ -66,11 +66,11 @@ int i;
     s.clear();
 
     if (catflag == 0){//contact selected
-        s.append(cur_con->text(1));
+        s.append(import_legacy_images(cur_con->text(1)));
         modify_name (cur_con);
     }
     else {//category selected
-        s.append(cur_cat->text(1));
+        s.append(import_legacy_images(cur_cat->text(1)));
         modify_name(cur_cat);
     }
 

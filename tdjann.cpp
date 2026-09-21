@@ -22,7 +22,6 @@ email                : letapk@gmail.com
 
 extern int get_month_int (QString s);
 
-extern Anniversary anniversary[];
 
 int anniversary_compare (const void *a, const void *b);
 
@@ -35,20 +34,20 @@ int i, m;
     for (i = 0; i < 366; i++){
         //new data stores a canonical month number; show its localized name.
         //Legacy files store a localized label which is shown as-is.
-        m = get_month_int (anniversary[i+1].month);
+        m = get_month_int (m_store.ann(i+1).month);
         if (m >= 1 && m <= 12)
             anncol0[i].setText (get_month_name (m));
         else
-            anncol0[i].setText (anniversary[i+1].month);
-        anncol1[i].setText (anniversary[i+1].date);
-        anncol2[i].setText (anniversary[i+1].description);
+            anncol0[i].setText (m_store.ann(i+1).month);
+        anncol1[i].setText (m_store.ann(i+1).date);
+        anncol2[i].setText (m_store.ann(i+1).description);
     }
 }
 
 void MainWindow::sort_anniversaries (void)
 {
-    if (max_anniversaries > 0)
-        qsort (&(anniversary[1]), max_anniversaries, sizeof (Anniversary), anniversary_compare);
+    if (m_store.maxAnns() > 0)
+        qsort (&m_store.ann(1), m_store.maxAnns(), sizeof (Anniversary), anniversary_compare);
 }
 
 int anniversary_compare (const void *a, const void *b)
@@ -91,9 +90,9 @@ void MainWindow::get_anniversary_items ()
 int i, j, row, m;
 
     for (i = 1; i < 367; i++) {
-        anniversary[i].date.clear();
-        anniversary[i].month.clear();
-        anniversary[i].description.clear();
+        m_store.ann(i).date.clear();
+        m_store.ann(i).month.clear();
+        m_store.ann(i).description.clear();
     }
 
     //table rows run from 0 onwards
@@ -110,11 +109,11 @@ int i, j, row, m;
             //parsed is kept verbatim
             m = get_month_int (anncol0[row].text());
             if (m >= 1 && m <= 12)
-                anniversary[j].month = QString::number (m);
+                m_store.ann(j).month = QString::number (m);
             else
-                anniversary[j].month = anncol0[row].text();
-            anniversary[j].date = anncol1[row].text();
-            anniversary[j].description = anncol2[row].text();
+                m_store.ann(j).month = anncol0[row].text();
+            m_store.ann(j).date = anncol1[row].text();
+            m_store.ann(j).description = anncol2[row].text();
             j++;
             i = 0;
         }

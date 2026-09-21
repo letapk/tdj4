@@ -242,6 +242,9 @@ QFont f;
         QApplication::setFont(f);
         curfont = f;
         apply_font_to_calendar(f);
+        //a font change re-fits the calendar width and height to the new text
+        //size (any manual resize from the horizontal divider is released)
+        calheight = -1;
 
         //a larger font makes the calendar want more room: let the font change
         //propagate, then widen the left panel (within limits) so it is not

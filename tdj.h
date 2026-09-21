@@ -63,48 +63,42 @@ email                : letapk@gmail.com
 #include <QTranslator>
 #include <QButtonGroup>
 #include <QActionGroup>
+#include <QPixmap>
+#include <QUrl>
+#include <QTextDocument>
 
 //storage and crypto layer: field codec, TDJ2 container, key/salt ownership
 //(CryptoManager) and the store file facade (TdjEncryptedFile). Qt-Core-only.
 #include "tdjstore.h"
 
+//editor that renders encrypted attachments: <img src="tdj-image:<id>"> is
+//resolved through StorageManager::getAttachment() (the raw bytes live only in
+//the encrypted Attachments.tdj store), so nothing is ever read from a loose
+//plaintext file in the data dir. Any non-attachment URL falls through to the
+//base QTextEdit behaviour.
+class TdjEditor : public QTextEdit
+{
+    Q_OBJECT
+
+public:
+    explicit TdjEditor(StorageManager *store, QWidget *parent = 0);
+
+protected:
+    QVariant loadResource(int type, const QUrl &name) override;
+
+private:
+    StorageManager *m_store;
+};
+
 namespace Ui {
 class MainWindow;
 }
 
-//notes for the month on display, begins from 1
-class Note
-{
-public:
-    QString data;
-    //cached flag: has the note any plain text at all ?
-    //this is maintained by save_note() and read_journal_file() so that the
-    //calendar formatting code does not have to build QTextDocuments on every
-    //keystroke. It mirrors the legacy "length > 0 after stripping HTML" test.
-    bool hasText;
-};
-
-//appointments array for the month on display, begins from 1
-class Appointment
-{
-public:
-    //no. of appointments for this day
-    int total;
-    //time and description data for each appointment, from 1-48, 0 is not used
-    QString apptime[49], apptdesc[49];
-};
-
-//this is one row of a two column table, used for sorting the appointments
+//one row of a two column table, used for sorting the appointments
 class Tablerow {
 public:
     QString col0, col1;
     bool chkstate;
-};
-
-class Anniversary
-{
-public:
-    QString date, month, description;
 };
 
 class ComboBoxItemDelegate : public QStyledItemDelegate
@@ -155,7 +149,7 @@ class MainWindow : public QMainWindow
 
     QTabWidget *tabcontainer;
     QWidget *noted,  *contacted, *listed, *appt, *anni, *search, *prefs;
-    QTextEdit *noteditor, *contacteditor, *listeditor;
+    TdjEditor *noteditor, *contacteditor, *listeditor;
     QTableWidget *apptable, *anntable;
 
     //draggable handle between the left panel (calendar/trees) and the right
@@ -165,6 +159,15 @@ class MainWindow : public QMainWindow
     bool divider_dragging;
     int divider_drag_x;
     int divider_drag_left;
+
+    //horizontal handle below the Today button that resizes the calendar; the
+    //height stays -1 ("auto-fit the current font") until the user drags it,
+    //and a font change resets it to auto
+    QFrame *hdiv;
+    int calheight;
+    bool calheight_dragging;
+    int calheight_drag_y;
+    int calheight_drag_base;
 
     //text in editor
     QString note_to_show, list_to_show;
@@ -176,7 +179,6 @@ class MainWindow : public QMainWindow
 
     //items for anniversaries table
     QTableWidgetItem anncol0[367], anncol1[367], anncol2[367];
-    int max_anniversaries;
 
     //search
     QGroupBox *searchbox;
@@ -213,6 +215,12 @@ class MainWindow : public QMainWindow
 
     //owns every key, salt and IV used by the store layer (no file globals)
     CryptoManager m_crypto;
+    //owns the in-memory data models and the store serialization (no file
+    //globals, no extern chains); the GUI binds widgets through the accessors
+    StorageManager m_store;
+    //T2: set whenever an image is imported or a note is emptied; the next
+    //save_notes_and_appts() then writes Attachments.tdj and prunes orphans
+    bool m_attachmentsDirty = false;
 
     QDialog *Chpwdialog, *Cnfdialog;
     QLabel *lbl1, *lbl2, *lbl4;
@@ -230,6 +238,7 @@ class MainWindow : public QMainWindow
     QString DailyAppointmentsfilename;
     QString Contactfilename;
     QString Listfilename;
+    QString Attachmentsfilename;
     QString Gnugplfilename;
     QString Helpfilename;
 
@@ -239,6 +248,7 @@ class MainWindow : public QMainWindow
     QString Datadirectory;
 
     void resizeEvent(QResizeEvent *);
+    void showEvent(QShowEvent *) override;
     bool eventFilter(QObject *, QEvent *) override;
     //(re)position the left and right panels from leftwidth and the window size
     void layout_panels();
@@ -252,6 +262,17 @@ public:
     explicit MainWindow(QWidget *parent = 0);
     ~MainWindow();
     friend class ComboBoxItemDelegate;
+
+    //the store the GUI is bound to; exposed for the headless tests that drive
+    //the attachment/render paths directly
+    StorageManager &store() { return m_store; }
+
+    //test-only: the calendar background colour of a day in the shown month,
+    //so a headless test can verify editing/display preserves the colour
+    //precedence rather than resetting the date to white
+    QColor calendarDateBg(int day) const {
+        return calendar->dateTextFormat(QDate(year, month, day)).background().color();
+    }
 
 public slots:
     //menu
@@ -291,6 +312,7 @@ public slots:
     void format_appointments();
     void format_anniversaries ();
     void format_notes();
+    void recolor_calendar_date(int);
     void format_headers();
     void set_header_color();
     void go_to_today();
@@ -306,6 +328,7 @@ public slots:
     void fill_appointment_items ();
     void get_appointment_items ();
     void sort_appointments(void);
+    void compact_appointments(int j);
 
     void check_appt_time (QString, bool *);
     void save_appt_cell (QTableWidgetItem *);
@@ -334,6 +357,15 @@ public slots:
     void show_contact();
     void save_contact ();
     void modify_name (QTreeWidgetItem *);
+
+    //T2 encrypted attachments
+    //rewrite every <img src="/abs/path"> (and file://) in `html` to
+    //<img src="tdj-image:<id>">, importing the file content into the
+    //attachment store; missing/oversized/non-importable files are left as-is
+    QString import_legacy_images(const QString &html);
+    //scan all stored content, drop unreferenced attachments and persist any
+    //resulting shrink to disk
+    void prune_orphan_attachments();
 
     void set_contact (QTreeWidgetItem *);
 

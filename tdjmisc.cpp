@@ -23,16 +23,14 @@ email                : letapk@gmail.com
 #include <QImageReader>
 #include <QDesktopServices>
 #include <QSaveFile>
+#include <QTimer>
+#include <QRegularExpression>
+#include <QUrl>
 
 extern void crypt_error_notification (const char *errstr);
 
 extern QString Lockfilename, userpath;
 extern bool setpwd;
-
-extern Note note[];
-
-//used while reencrypting data files due to a change in password
-QFileInfo reencfileInfo;
 
 void MainWindow::about()
 //open a window to show program information and copyright license
@@ -189,21 +187,27 @@ int lx, lw, rx, rw, tw, th;
 
     lx = 10;//left margin
     lw = leftwidth;
-    //keep both panels usable
-    if (lw < 150)
-        lw = 150;
+    //never let the left panel get narrow enough to clip the calendar's
+    //rightmost day columns; sizeHint() already reflects the current font and
+    //the compact stylesheet, so the stop point follows both
+    int lwMin = calendar->sizeHint().width() + 4;
+    if (lw < lwMin)
+        lw = lwMin;
     if (lw > width() - 260)
         lw = width() - 260;
-    if (lw < 150)
-        lw = 150;
+    if (lw < lwMin)//window too narrow: the calendar wins over the right panel
+        lw = lwMin;
     leftwidth = lw;
 
-    //left panel: the calendar takes the full height its content needs so that
-    //every day of the month is visible even with a larger application font;
-    //the widgets below it shift down accordingly (clamped so the tree below
+    //left panel: the calendar height is the manual value from the horizontal
+    //divider below the Today button once the user has dragged it, otherwise it
+    //auto-fits the current font (sizeHint) so every day of the month is
+    //visible; the widgets below shift down accordingly (clamped so the tree
     //keeps some room)
-    int calH = calendar->sizeHint().height() + 12;
-    int calMax = height() - 215;//keep room for the today button, buttons, tree
+    int calH = calheight;//-1 means auto-fit
+    if (calH < 0)
+        calH = calendar->sizeHint().height() + 12;
+    int calMax = height() - 227;//room for the today button, divider, buttons, tree
     if (calH > calMax)
         calH = calMax;
     if (calH < 150)//keep the calendar usable in a very small window
@@ -214,9 +218,12 @@ int lx, lw, rx, rw, tw, th;
     int y1 = 30 + calH + 5;
     todaybut.setGeometry(lx, y1, lw, 25);
 
+    //horizontal divider below the Today button: drag to resize the calendar
+    hdiv->setGeometry(lx + 2, y1 + 27, lw - 4, 8);
+
     //buttons for the contact tree: Group / Contact / Delete
     int c3 = (lw - 20) / 3;
-    int y2 = y1 + 30;
+    int y2 = y1 + 37;
     catbut.setGeometry(lx, y2, c3, 25);
     childbut.setGeometry(lx + c3 + 10, y2, c3, 25);
     delbut.setGeometry(lx + 2 * (c3 + 10), y2, lw - 2 * (c3 + 10), 25);
@@ -226,10 +233,9 @@ int lx, lw, rx, rw, tw, th;
     listbut.setGeometry(lx, y2, c2, 25);
     delist.setGeometry(lx + c2 + 10, y2, lw - c2 - 10, 25);
 
-    //trees fill the remaining height on the left
+    //top of the contact/note trees; their lower border is aligned with the
+    //editor after the right panel is laid out below
     int y3 = y2 + 30;
-    contree->setGeometry(lx, y3, lw, height() - 10 - y3);
-    listree->setGeometry(lx, y3, lw, height() - 10 - y3);
 
     divider->setGeometry(lx + lw + 4, 30, 8, height() - 60);
 
@@ -250,6 +256,16 @@ int lx, lw, rx, rw, tw, th;
     apptable->setGeometry(10, 10, tw - 20, th - 55);
     anntable->setGeometry(10, 10, tw - 20, th - 55);
 
+    //trees on the left: their lower border lines up with the lower border of
+    //the editor (so they clear the status text row), and their top follows
+    //the horizontal divider above. mapTo() accounts for the tab bar and the
+    //page inset that position the editor inside the tab container.
+    int treeBot = noteditor->mapTo(this, noteditor->rect().bottomLeft()).y();
+    if (treeBot - y3 < 80)//keep a usable minimum in very small windows
+        treeBot = y3 + 80;
+    contree->setGeometry(lx, y3, lw, treeBot - y3);
+    listree->setGeometry(lx, y3, lw, treeBot - y3);
+
     //resize and reposition the search widgets
     searchtxtbox->setGeometry(120, 10, tw - 220, 25);
     srchbut->setGeometry(tw - 90, 10, 80, 25);
@@ -262,7 +278,8 @@ int lx, lw, rx, rw, tw, th;
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
-//handle dragging of the divider between the left and right panels
+//handle dragging of the vertical divider (left/right panels) and the
+//horizontal divider (calendar height)
 {
     if (watched == divider) {
         if (event->type() == QEvent::MouseButtonPress) {
@@ -292,7 +309,47 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         }
     }
 
+    if (watched == hdiv) {
+        if (event->type() == QEvent::MouseButtonPress) {
+            QMouseEvent *me = static_cast<QMouseEvent *>(event);
+            if (me->button() == Qt::LeftButton) {
+                calheight_dragging = true;
+                calheight_drag_y = me->globalPosition().toPoint().y();
+                calheight_drag_base = calendar->height();
+                return true;
+            }
+        }
+        else if (event->type() == QEvent::MouseMove) {
+            QMouseEvent *me = static_cast<QMouseEvent *>(event);
+            if (calheight_dragging) {
+                int dy = me->globalPosition().toPoint().y() - calheight_drag_y;
+                calheight = calheight_drag_base + dy;
+                layout_panels ();
+                return true;
+            }
+        }
+        else if (event->type() == QEvent::MouseButtonRelease) {
+            QMouseEvent *me = static_cast<QMouseEvent *>(event);
+            if (me->button() == Qt::LeftButton) {
+                calheight_dragging = false;
+                return true;
+            }
+        }
+    }
+
     return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::showEvent(QShowEvent *event)
+//the tab container positions its pages only in the layout pass that follows
+//the show, which moves the editor lower on screen; re-lay the panels once that
+//layout has happened so the trees line up with the editor's lower border
+{
+    QWidget::showEvent(event);
+    QTimer::singleShot(0, this, [this]
+    {
+        layout_panels ();
+    });
 }
 
 void MainWindow::resizeEvent(QResizeEvent *event)
@@ -428,43 +485,48 @@ bool ok = true;
     dir.setNameFilters(fltr);
     list = dir.entryInfoList();//list of month files
 
-    //phase 1: read with the old key, write `*.new` with the new key
+    //phase 1: read with the old key, write `*.new` with the new key.
+    //Month stores run through StorageManager with explicit paths (the old
+    //code routed this through the global reencfileInfo; the GUI wrappers are
+    //only used for the displayed month and never re-encrypt)
     for (i = 0; i < list.size(); i++) {
-        reencfileInfo = list.at(i);//file at position i in the list
-        if (reencfileInfo.baseName().startsWith("Notes")) {
-            read_journal_file (1);
-            write_journal_file (1);
+        path = Homepath + "/" + list.at(i).fileName();
+        if (list.at(i).baseName().startsWith("Notes")) {
+            if (m_store.loadJournal(m_crypto, path, 1) != TdjFieldCorrupt)
+                m_store.saveJournal(m_crypto, path + ".new", 1);
         }
         else {
-            read_appt_file (1);
-            write_appt_file (1);
+            if (m_store.loadApptMonth(m_crypto, path, 1) != TdjFieldCorrupt)
+                m_store.saveApptMonth(m_crypto, path + ".new", 1);
         }
-        path = Homepath + "/" + reencfileInfo.fileName() + ".new";
-        newFiles.append(path);
-        origFiles.append(Homepath + "/" + reencfileInfo.fileName());
+        newFiles.append(path + ".new");
+        origFiles.append(path);
     }
 
     //flat stores are re-encrypted from the in-memory content (it was saved
-    //under the old key just before the change began)
-    reencfileInfo = QFileInfo(DailyAppointmentsfilename);
+    //under the old key just before the change began); the GUI writers append
+    //`.new` to the store filename when inivecflag==1
     write_daily_appt_file (1);
-    newFiles.append(Homepath + "/DailyAppointments.tdj.new");
-    origFiles.append(Homepath + "/DailyAppointments.tdj");
+    newFiles.append(DailyAppointmentsfilename + ".new");
+    origFiles.append(DailyAppointmentsfilename);
 
-    reencfileInfo = QFileInfo(Anniversaryfilename);
     write_ann_file (1);
-    newFiles.append(Homepath + "/" + reencfileInfo.fileName() + ".new");
-    origFiles.append(Homepath + "/" + reencfileInfo.fileName());
+    newFiles.append(Anniversaryfilename + ".new");
+    origFiles.append(Anniversaryfilename);
 
-    reencfileInfo = QFileInfo(Contactfilename);
     write_contacts (1);
-    newFiles.append(Homepath + "/" + reencfileInfo.fileName() + ".new");
-    origFiles.append(Homepath + "/" + reencfileInfo.fileName());
+    newFiles.append(Contactfilename + ".new");
+    origFiles.append(Contactfilename);
 
-    reencfileInfo = QFileInfo(Listfilename);
     write_lists (1);
-    newFiles.append(Homepath + "/" + reencfileInfo.fileName() + ".new");
-    origFiles.append(Homepath + "/" + reencfileInfo.fileName());
+    newFiles.append(Listfilename + ".new");
+    origFiles.append(Listfilename);
+
+    //encrypted attachment store re-encrypts through the same key shuffle
+    m_store.loadAttachments (m_crypto, Attachmentsfilename, 1);
+    m_store.saveAttachments (m_crypto, Attachmentsfilename + ".new", 1);
+    newFiles.append(Attachmentsfilename + ".new");
+    origFiles.append(Attachmentsfilename);
 
     //every `*.new` must exist, else abort without touching the originals
     for (i = 0; i < newFiles.size(); i++)
@@ -512,7 +574,7 @@ int i, j;
 QDir dir;
 QStringList fltr;
 QFileInfoList list;
-QString txtfile, s, fname, Year, Month;
+QString txtfile, s, fname, Year, Month, path;
 QTextDocument *doc;
 bool ok;
 
@@ -537,24 +599,24 @@ bool ok;
 
     //read and export each file as text
     for (i = 0; i < list.size(); i++) {
-        reencfileInfo = list.at(i);//file at position i in the list
+        path = Homepath + "/" + list.at(i).fileName();
         //read the listed file with the current session key (0), not the
         //migration key that inivecflag==1 implies
-        read_journal_file (0, Homepath + "/" + reencfileInfo.fileName());
+        read_journal_file (0, path);
 
-        fname = reencfileInfo.baseName();//filename without path and extension : "Notes-xxxx-xx"
+        fname = list.at(i).baseName();//filename without path and extension : "Notes-xxxx-xx"
         Month = fname.remove (0, 11);//remove leading part : "Notes-xxxx-". Only "xx" remains
 
-        fname = reencfileInfo.baseName();//filename without path and extension : "Notes-xxxx-xx"
+        fname = list.at(i).baseName();//filename without path and extension : "Notes-xxxx-xx"
         Year = fname.remove(0, 6);//remove leading part of Notefilename : "Notes-". Only "xxxx-xx" remains
         Year.truncate(4);//remove trailing part : "-xx". Only "xxxx" remains.
 
         for (j = 1; j <= 31; j++) {
-            if (note[j].data.isEmpty() == false) {
+            if (m_store.note(j).data.isEmpty() == false) {
                 out << j << " " << get_month_name(Month.toInt()) << " " << Year << "\n";
 
                 doc = new QTextDocument ();
-                doc->setHtml(note[j].data);
+                doc->setHtml(m_store.note(j).data);
                 s = doc->toPlainText();
                 delete doc;
 
@@ -566,7 +628,7 @@ bool ok;
     }
     file.close();
 
-    //the loop above left note[] holding the last exported file; restore the
+    //the loop above left the model holding the last exported file; restore the
     //displayed month so a subsequent save cannot write into the wrong file
     reload_current_month ();
 
@@ -791,10 +853,8 @@ int i = -1;
 
 void MainWindow::insertImage()
 {
-QString s, filters, fname;
-QFileInfo fi;
 QTextEdit *editor;
-QMessageBox msgBox;
+QString filters;
 int i;
 
     i = tabcontainer->currentIndex();
@@ -817,26 +877,174 @@ int i;
     QString file = QFileDialog::getOpenFileName(this, tr("Open image..."), QString(), filters);
     if (file.isEmpty())
         return;
-    if (!QFile::exists(file))
+
+    QFile f(file);
+    if (!f.open(QIODevice::ReadOnly))
         return;
+    QByteArray img = f.readAll();
 
-    fi = QFileInfo(file);
-    if (fi.path() != Homepath) {
-        //copy the file to the data subdirectory
-        fname.clear();
-        fname.append(Homepath);
-        fname.append("/");
-        fname.append(fi.fileName());
-        QFile::copy (fi.filePath(), fname);
-
-        s.append (QObject::tr("The image file has been copied to the tdj data directory "));
-        s.append (Homepath);
-        s.append (QObject::tr("\nClick OK to continue"));
-        msgBox.setText(s);
-        msgBox.exec();
+    if (img.isEmpty() || img.size() > kMaxAttachmentBytes) {
+        QMessageBox::warning(this, tr("Image too large"),
+            tr("The image is larger than %1 MB and cannot be stored in the "
+               "encrypted database.").arg(kMaxAttachmentBytes / (1024 * 1024)));
+        return;
     }
 
-    editor->insertHtml(QString ("<img src=\"%1/%2\">").arg(Homepath).arg(fi.fileName()));
+    //the bytes go into the encrypted Attachments.tdj store; the editor HTML
+    //carries only a content-address reference, never a filesystem path
+    QString id = m_store.putAttachment(img);
+    if (id.isEmpty())
+        return;
+
+    editor->insertHtml(QString("<img src=\"%1\" />").arg(id));
+    m_attachmentsDirty = true;
+}
+
+QString MainWindow::import_legacy_images(const QString &html)
+{
+    //rewrite the src of every local-file <img> to a tdj-image: reference,
+    //importing the bytes into the encrypted attachment store. Already-managed
+    //tdj-image: srcs and unresolvable files (missing, unreadable, oversized)
+    //are left untouched, so the function is safe to run on any displayed html.
+    static const QRegularExpression imgTag("<img\\b[^>]*>",
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression srcAttr(
+        "\\bsrc\\s*=\\s*(\"([^\"]*)\"|'([^']*)'|([^\\s>]*))",
+        QRegularExpression::CaseInsensitiveOption);
+
+    QRegularExpressionMatchIterator it = imgTag.globalMatch(html);
+    QString out;
+    qsizetype pos = 0;
+    bool imported = false;
+
+    while (it.hasNext()) {
+        QRegularExpressionMatch m = it.next();
+        out.append(html.mid(pos, m.capturedStart() - pos));
+        pos = m.capturedEnd();
+
+        QString tag = m.captured(0);
+        QRegularExpressionMatch src = srcAttr.match(tag);
+        if (!src.hasMatch()) {
+            out.append(tag);
+            continue;
+        }
+        QString val = src.captured(2);
+        if (val.isEmpty())
+            val = src.captured(3);
+        if (val.isEmpty())
+            val = src.captured(4);
+        if (val.startsWith("tdj-image:")) {//already an encrypted reference
+            out.append(tag);
+            continue;
+        }
+
+        //resolve the src to a local path (accept absolute or Homepath-relative)
+        QString path = val;
+        if (path.startsWith("file://"))
+            path = QUrl(path).toLocalFile();
+        if (!QFileInfo(path).isAbsolute())
+            path = Homepath + "/" + path;
+
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) {
+            out.append(tag);
+            continue;
+        }
+        QByteArray img = f.readAll();
+        if (img.isEmpty() || img.size() > kMaxAttachmentBytes) {
+            out.append(tag);
+            continue;
+        }
+
+        QString id = m_store.putAttachment(img);
+        if (id.isEmpty()) {
+            out.append(tag);
+            continue;
+        }
+        imported = true;
+        out.append(tag.left(src.capturedStart())
+                   + "src=\"" + id + "\""
+                   + tag.mid(src.capturedEnd()));
+    }
+    if (!imported)
+        return html;
+    out.append(html.mid(pos));
+    m_attachmentsDirty = true;
+    return out;
+}
+
+void MainWindow::prune_orphan_attachments()
+{
+    if (m_store.attachmentCount() == 0)
+        return;
+
+    QSet<QString> keep;
+
+    //content currently in memory (the displayed month, contacts, lists)
+    int d;
+    for (d = 1; d <= 31; d++) {
+        for (const QString &id : tdj_attachment_refs(m_store.note(d).data))
+            keep.insert(id);
+    }
+
+    //every stored month, via throwaway models so the live buffers survive
+    QDir dir(Homepath);
+    QStringList fltr;
+    fltr << "Notes-*.tdj";
+    dir.setNameFilters(fltr);
+    QFileInfoList list = dir.entryInfoList();
+    for (const QFileInfo &fi : list) {
+        StorageManager month;
+        if (month.loadJournal(m_crypto, Homepath + "/" + fi.fileName(), 0)
+                != TdjFieldOk)
+            continue;
+        for (d = 1; d <= 31; d++)
+            for (const QString &id : tdj_attachment_refs(month.note(d).data))
+                keep.insert(id);
+    }
+
+    //lists + contacts (their editor HTML can embed images too)
+    {
+        StorageManager flat;
+        QVector<TdjList> lists;
+        if (flat.loadLists(m_crypto, Listfilename, lists) == TdjFieldOk)
+            for (const TdjList &l : lists)
+                for (const QString &id : tdj_attachment_refs(l.data))
+                    keep.insert(id);
+        QVector<TdjGroup> groups;
+        if (flat.loadContacts(m_crypto, Contactfilename, groups) == TdjFieldOk)
+            for (const TdjGroup &g : groups)
+                for (const TdjItem &it : g.items)
+                    for (const QString &id : tdj_attachment_refs(it.data))
+                        keep.insert(id);
+    }
+
+    int before = m_store.attachmentCount();
+    m_store.pruneAttachments(keep);
+
+    if (m_store.attachmentCount() != before)
+        m_store.saveAttachments(m_crypto, Attachmentsfilename, 0);
+}
+
+TdjEditor::TdjEditor(StorageManager *store, QWidget *parent)
+: QTextEdit (parent), m_store(store)
+{
+}
+
+QVariant TdjEditor::loadResource(int type, const QUrl &name)
+{
+    if (type == QTextDocument::ImageResource && m_store != 0) {
+        QString id = name.toString();
+        if (id.startsWith("tdj-image:")) {
+            QByteArray bytes;
+            if (m_store->getAttachment(id, bytes)) {
+                QPixmap pm;
+                if (pm.loadFromData(bytes))
+                    return pm;
+            }
+        }
+    }
+    return QTextEdit::loadResource(type, name);
 }
 
 void MainWindow::cursorPositionChanged()

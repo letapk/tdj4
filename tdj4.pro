@@ -4,7 +4,7 @@
 #
 #-------------------------------------------------
 
-QT       += core gui widgets core5compat
+QT       += core gui widgets
 
 #This should be uncommented to produce a compile time error
 #for string literals that are not enclosed within a tr()

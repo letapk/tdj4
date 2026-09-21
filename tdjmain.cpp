@@ -25,13 +25,9 @@ email                : letapk@gmail.com
 
 #include "tdj.h"
 
-//notes for the month on display, begins from 1
-Note note[32];
-//appointments array for the month on display, begins from 1
-Appointment appointment[32];
-Appointment dailyappt;
-//anniversaries array, begins from 1
-Anniversary anniversary [367];
+//the six data models (notes, appointments, the repeating-appointments day,
+//anniversaries) live in StorageManager MainWindow::m_store - no file-scope
+//buffers or extern chains anywhere in the GUI
 
 //userpath contains the path to the data subdirectory
 QString Lockfilename, userpath;
@@ -121,6 +117,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     //width of the left (calendar/trees) panel, changed by dragging the divider
     leftwidth = 300;
     divider_dragging = false;
+
+    //height of the calendar, changed by dragging the horizontal divider; -1
+    //means "auto-fit the current font" (reset on every font change)
+    calheight = -1;
+    calheight_dragging = false;
 
     //main menu
     filemenu = menuBar()->addMenu(tr("&File"));
@@ -259,6 +260,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     divider->installEventFilter (this);
     divider->raise();
 
+    //draggable horizontal divider below the Today button: resizes the
+    //calendar above it while the button and the tree buttons stay fixed
+    hdiv = new QFrame (this);
+    hdiv->setObjectName ("hdiv");
+    hdiv->setFrameShape (QFrame::HLine);
+    hdiv->setFrameShadow (QFrame::Sunken);
+    hdiv->setCursor (Qt::SplitVCursor);
+    hdiv->setToolTip (tr("Drag to resize the calendar"));
+    hdiv->installEventFilter (this);
+    hdiv->raise();
+
     //---------------------RIGHT side
 
     setuptoolbar ();
@@ -271,7 +283,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     //index 0 - notes
     noted = new QWidget ();
-    noteditor = new QTextEdit (noted);
+    noteditor = new TdjEditor (&m_store, noted);
     connect(noteditor, &QTextEdit::currentCharFormatChanged, this, &MainWindow::currentCharFormatChanged);
     connect(noteditor, &QTextEdit::cursorPositionChanged, this, &MainWindow::cursorPositionChanged);
     connect (noteditor, &QTextEdit::textChanged, this, &MainWindow::save_note);
@@ -301,7 +313,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     //index 2 - contacts
     contacted = new QWidget ();
-    contacteditor = new QTextEdit (contacted);
+    contacteditor = new TdjEditor (&m_store, contacted);
     connect(contacteditor, &QTextEdit::currentCharFormatChanged, this, &MainWindow::currentCharFormatChanged);
     connect(contacteditor, &QTextEdit::cursorPositionChanged, this, &MainWindow::cursorPositionChanged);
     connect (contacteditor, &QTextEdit::textChanged, this, &MainWindow::save_contact);
@@ -315,7 +327,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     //index 3 - to-do lists
     listed = new QWidget ();
-    listeditor = new QTextEdit (listed);
+    listeditor = new TdjEditor (&m_store, listed);
     connect(listeditor, &QTextEdit::currentCharFormatChanged, this, &MainWindow::currentCharFormatChanged);
     connect(listeditor, &QTextEdit::cursorPositionChanged, this, &MainWindow::cursorPositionChanged);
     connect (listeditor, &QTextEdit::textChanged, this, &MainWindow::save_list);
@@ -566,6 +578,13 @@ int inivecflag = 0;
     todaybut.setText(d->toString());
     delete d;
 
+    //encrypted attachment store (T2): images live here, never as loose
+    //plaintext files; load it before shownote() so existing tdj-image: refs
+    //render on the very first day
+    Attachmentsfilename.append (Homepath);
+    Attachmentsfilename.append ("/Attachments.tdj");
+    m_store.loadAttachments (m_crypto, Attachmentsfilename, inivecflag);
+
     //notes file to read
     s1.setNum (year);
     s2.setNum(month);
@@ -627,7 +646,7 @@ int inivecflag = 0;
     if (contreeempty == false) {
         cur_cat = contree->topLevelItem(0);
         contree->setCurrentItem(cur_cat);
-        contacteditor->setPlainText(cur_cat->text(1));
+        contacteditor->setHtml(import_legacy_images(cur_cat->text(1)));
         cur_con = cur_cat;
         catflag = 1;
     }
@@ -710,6 +729,11 @@ int inivecflag = 0;
     set_appt_time_array();
     set_next_appointment_timer();
 
+    //loading today's note (setHtml) fires the editor's textChanged signal,
+    //which reports "Note saved to buffer"; leave the status line blank at
+    //startup and let the first real edit repaint it
+    statustext->clear();
+
     return;
 }
 
@@ -717,25 +741,29 @@ void MainWindow::save_note ()
 //transfer user data from editor to note array
 {
     //save note to memory
-    note[date_to_show].data = noteditor->toHtml();
+    m_store.note(date_to_show).data = noteditor->toHtml();
 
     //compute the plain-text emptiness flag cheaply, without re-serialising
     //the whole document (this runs on every keypress)
-    note[date_to_show].hasText = false;
+    bool hadText = m_store.note(date_to_show).hasText;
+    m_store.note(date_to_show).hasText = false;
     QTextBlock b = noteditor->document()->begin();
     while (b.isValid()) {
         if (!b.text().isEmpty()) {
-            note[date_to_show].hasText = true;
+            m_store.note(date_to_show).hasText = true;
             break;
         }
         b = b.next();
     }
+    //a note that just lost all its text may have orphaned an image reference
+    if (hadText && !m_store.note(date_to_show).hasText)
+        m_attachmentsDirty = true;
 
     //recolour only the edited date - recalculating the whole month on every
-    //keystroke used to build a QTextDocument for each day of the month
-    QTextCharFormat f = calendar->weekdayTextFormat(Qt::Monday);
-    f.setBackground(note[date_to_show].hasText ? QColor(Qt::lightGray) : QColor(Qt::white));
-    calendar->setDateTextFormat(QDate(year, month, date_to_show), f);
+    //keystroke used to build a QTextDocument for each day of the month. The
+    //single-date recolor reapplies the yellow>cyan>lightGray>white precedence,
+    //so displaying the journal never wipes an anniversary/appointment colour.
+    recolor_calendar_date(date_to_show);
 
     statustext->setText(tr("Note saved to buffer"));
 }
@@ -749,6 +777,15 @@ int inivecflag = 0;
     write_journal_file (inivecflag);//saves all notes
     write_appt_file (inivecflag);//saves all appointments
     write_daily_appt_file(inivecflag);//saves the appointments that repeat daily
+
+    //persist the attachment store and drop orphaned images only after an
+    //import or an emptied note marked it dirty (the orphan scan reads every
+    //month file, so it must not run on every tab switch)
+    if (m_attachmentsDirty) {
+        prune_orphan_attachments ();
+        m_store.saveAttachments (m_crypto, Attachmentsfilename, 0);
+        m_attachmentsDirty = false;
+    }
 }
 
 void MainWindow::save_other_data()
@@ -780,16 +817,21 @@ QString s;
 
     note_to_show.clear();
 
+    //migrate legacy <img src="/abs/path"> stored in old notes into the
+    //encrypted attachment store; the editor then renders them via tdj-image:
+    //and the next save persists the rewritten html
+    note_to_show.append(import_legacy_images(m_store.note(date_to_show).data));
+
     s.clear();
     doc = new QTextDocument ();
-    doc->setHtml(note[date_to_show].data);
+    doc->setHtml(note_to_show);
     //strip HTML formatting
     s = doc->toPlainText();
     //all this to find the actual length of the note
     i = s.length();
 
     if (i != 0) {//display journal entry
-        note_to_show.append(note[date_to_show].data);
+        //note_to_show already holds the (possibly image-migrated) html
         noteditor->setHtml(note_to_show);
     }
     else if (fortune == true) {//empty note, show a fortune

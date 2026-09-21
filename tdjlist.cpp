@@ -77,7 +77,7 @@ int i;
     tabcontainer->setCurrentIndex(i);
 
     s.clear();
-    s.append(cur_list->text(1));
+    s.append(import_legacy_images(cur_list->text(1)));
     listeditor->setHtml(s);
 
 }

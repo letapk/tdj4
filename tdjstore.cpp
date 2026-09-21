@@ -10,8 +10,10 @@
 #include "tdjstore.h"
 #include <gcrypt.h>
 #include <QBuffer>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <cstring>
 
@@ -555,4 +557,586 @@ bool TdjEncryptedFile::write(CryptoManager &crypto, const QString &path,
                              int inivecflag)
 {
     return crypto.writeContainer(path, fileType, body, inivecflag);
+}
+
+// ---------------------------------------------------------------------------
+// StorageManager - the six store models and their field serialization.
+// ---------------------------------------------------------------------------
+
+bool tdj_html_has_text(const QString &html)
+{
+    //an <img> reference is visible content: QTextDocument substitutes the
+    //image for the U+FFFC placeholder character, so such a note is "text"
+    if (html.contains(QRegularExpression("<img\\b",
+            QRegularExpression::CaseInsensitiveOption)))
+        return true;
+
+    QString s = html;
+    static const QRegularExpression headBlock(
+        "<(style|script|head)[^>]*>.*?</\\1\\s*>",
+        QRegularExpression::CaseInsensitiveOption |
+        QRegularExpression::DotMatchesEverythingOption);
+    s.remove(headBlock);
+    static const QRegularExpression comment("<!--.*?-->",
+        QRegularExpression::DotMatchesEverythingOption);
+    s.remove(comment);
+    static const QRegularExpression tag("<[^>]*>");
+    s.remove(tag);
+
+    //an entity (&nbsp;, &amp;, &#NN;) is content to QTextDocument even though
+    //some render as whitespace on screen
+    if (s.contains(QRegularExpression("&(?:[a-zA-Z]+|#[0-9]+|#x[0-9a-fA-F]+);")))
+        return true;
+
+    for (const QChar &c : s)
+        if (!c.isSpace())
+            return true;
+    return false;
+}
+
+void StorageManager::clearAll()
+{
+    for (int i = 0; i < 32; i++) {
+        m_note[i].data.clear();
+        m_note[i].hasText = false;
+        m_appt[i].total = 0;
+        for (int r = 0; r < 49; r++) {
+            m_appt[i].apptime[r].clear();
+            m_appt[i].apptdesc[r].clear();
+        }
+    }
+    m_daily.total = 0;
+    for (int r = 0; r < 49; r++) {
+        m_daily.apptime[r].clear();
+        m_daily.apptdesc[r].clear();
+    }
+    for (int i = 0; i < 367; i++) {
+        m_ann[i].date.clear();
+        m_ann[i].month.clear();
+        m_ann[i].description.clear();
+    }
+    m_maxAnns = 0;
+    m_attachments.clear();
+}
+
+int StorageManager::loadJournal(CryptoManager &crypto, const QString &path,
+                                int inivecflag)
+{
+    for (int i = 1; i < 32; i++) {
+        m_note[i].data.clear();
+        m_note[i].hasText = false;
+    }
+
+    TdjEncryptedFile store(crypto);
+    int r = store.open(path, crypto.readKey32(inivecflag));
+    if (r != TdjFieldOk)
+        return r;//Eof (no file) or Corrupt
+    TdjFieldSource &fs = store.source();
+
+    if (fs.format == 2) {
+        //legacy journal: all 31 day lengths come first as plain ints, then
+        //the body of each non-empty day in day order
+        qint32 lens[32] = {};
+        for (int i = 1; i <= 31; i++) {
+            int r2 = fs.readLen(lens[i]);
+            if (r2 == TdjFieldEof)
+                break;//file ends cleanly here, remaining days are empty
+            if (r2 == TdjFieldCorrupt)
+                return TdjFieldCorrupt;
+        }
+        for (int i = 1; i <= 31; i++) {
+            if (lens[i] == 0)
+                continue;
+            QByteArray plain;
+            if (fs.readBody(lens[i], plain) == TdjFieldCorrupt)
+                return TdjFieldCorrupt;
+            m_note[i].data = QString::fromUtf8(plain);
+            m_note[i].hasText = tdj_html_has_text(m_note[i].data);
+        }
+        return TdjFieldOk;
+    }
+
+    //TDJ2: interleaved [len][body] forward stream, one field per day
+    for (int i = 1; i <= 31; i++) {
+        qint32 len;
+        int r2 = fs.readLen(len);
+        if (r2 == TdjFieldEof)
+            return TdjFieldOk;//clean end, remaining days are empty
+        if (r2 == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        if (len == 0)
+            continue;
+        QByteArray plain;
+        if (fs.readBody(len, plain) == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        m_note[i].data = QString::fromUtf8(plain);
+        m_note[i].hasText = tdj_html_has_text(m_note[i].data);
+    }
+    return TdjFieldOk;
+}
+
+bool StorageManager::saveJournal(CryptoManager &crypto, const QString &path,
+                                 int inivecflag)
+{
+    QByteArray body;
+    for (int i = 1; i <= 31; i++) {
+        QByteArray utf8 = m_note[i].data.toUtf8();
+        if (utf8.isEmpty()) {//empty length prefix, no data
+            tdj_append_field(body, QByteArray());
+            continue;
+        }
+        tdj_append_field(body, utf8);
+    }
+
+    if (inivecflag == 0) {//normal save: a month with no visible content leaves
+        bool any = false; //no file behind (matches the pre-r2 behaviour). The
+        for (int i = 1; i <= 31; i++) { //gate is derived from the data itself,
+            if (tdj_html_has_text(m_note[i].data)) { //so a stale hasText cache
+                any = true;//can never resurrect an emptied data file
+                break;
+            }
+        }
+        if (!any) {
+            QFile::remove(path);
+            return true;
+        }
+    }
+
+    return TdjEncryptedFile::write(crypto, path, Tdj2Notes, body, inivecflag);
+}
+
+int StorageManager::loadApptMonth(CryptoManager &crypto, const QString &path,
+                                  int inivecflag)
+{
+    for (int i = 1; i < 32; i++) {
+        m_appt[i].total = 0;
+        for (int row = 0; row < 49; row++) {
+            m_appt[i].apptime[row].clear();
+            m_appt[i].apptdesc[row].clear();
+        }
+    }
+
+    TdjEncryptedFile store(crypto);
+    int r = store.open(path, crypto.readKey32(inivecflag));
+    if (r != TdjFieldOk)
+        return r;
+    TdjFieldSource &fs = store.source();
+
+    for (int i = 1; i <= 31; i++) {
+        for (int row = 0; row < 48; row++) {
+            QByteArray time, desc;
+            qint32 len;
+            int k = fs.readLen(len);
+            if (k == TdjFieldEof || k == TdjFieldCorrupt)
+                return TdjFieldCorrupt;
+            if (fs.readBody(len, time) == TdjFieldCorrupt)
+                return TdjFieldCorrupt;
+            k = fs.readLen(len);
+            if (k == TdjFieldEof || k == TdjFieldCorrupt)
+                return TdjFieldCorrupt;
+            if (fs.readBody(len, desc) == TdjFieldCorrupt)
+                return TdjFieldCorrupt;
+            m_appt[i].apptime[row + 1] = QString::fromUtf8(time);
+            m_appt[i].apptdesc[row + 1] = QString::fromUtf8(desc);
+            if (m_appt[i].apptime[row + 1].size() +
+                m_appt[i].apptdesc[row + 1].size() > 0)
+                (m_appt[i].total)++;
+        }
+    }
+    return TdjFieldOk;
+}
+
+bool StorageManager::saveApptMonth(CryptoManager &crypto, const QString &path,
+                                   int inivecflag)
+{
+    QByteArray body;
+    for (int i = 1; i <= 31; i++) {
+        for (int row = 0; row < 48; row++) {
+            tdj_append_field(body, m_appt[i].apptime[row + 1].toUtf8());
+            tdj_append_field(body, m_appt[i].apptdesc[row + 1].toUtf8());
+        }
+    }
+
+    if (inivecflag == 0) {//normal save: an empty month leaves no file behind
+        bool any = false;
+        for (int i = 1; i <= 31 && !any; i++)
+            for (int row = 0; row < 48 && !any; row++)
+                any = !m_appt[i].apptime[row + 1].isEmpty()
+                   || !m_appt[i].apptdesc[row + 1].isEmpty();
+        if (!any) {
+            QFile::remove(path);
+            return true;
+        }
+    }
+
+    return TdjEncryptedFile::write(crypto, path, Tdj2Appointments, body,
+                                   inivecflag);
+}
+
+int StorageManager::loadDailyApps(CryptoManager &crypto, const QString &path)
+{
+    m_daily.total = 0;
+    for (int row = 0; row < 49; row++) {
+        m_daily.apptime[row].clear();
+        m_daily.apptdesc[row].clear();
+    }
+
+    TdjEncryptedFile store(crypto);
+    int r = store.open(path, crypto.readKey32(0));
+    if (r != TdjFieldOk)
+        return r;
+    TdjFieldSource &fs = store.source();
+
+    for (int row = 0; row < 48; row++) {
+        QByteArray time, desc;
+        qint32 len;
+        int k = fs.readLen(len);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        if (fs.readBody(len, time) == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        k = fs.readLen(len);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        if (fs.readBody(len, desc) == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        m_daily.apptime[row + 1] = QString::fromUtf8(time);
+        m_daily.apptdesc[row + 1] = QString::fromUtf8(desc);
+        if (m_daily.apptime[row + 1].size() + m_daily.apptdesc[row + 1].size() > 0)
+            (m_daily.total)++;
+    }
+    return TdjFieldOk;
+}
+
+bool StorageManager::saveDailyApps(CryptoManager &crypto, const QString &path,
+                                   int inivecflag)
+{
+    QByteArray body;
+    for (int row = 0; row < 48; row++) {
+        tdj_append_field(body, m_daily.apptime[row + 1].toUtf8());
+        tdj_append_field(body, m_daily.apptdesc[row + 1].toUtf8());
+    }
+
+    if (inivecflag == 0) {//normal save: no repeating appointments, no file
+        bool any = false;
+        for (int row = 0; row < 48 && !any; row++)
+            any = !m_daily.apptime[row + 1].isEmpty()
+               || !m_daily.apptdesc[row + 1].isEmpty();
+        if (!any) {
+            QFile::remove(path);
+            return true;
+        }
+    }
+
+    return TdjEncryptedFile::write(crypto, path, Tdj2DailyAppts, body,
+                                   inivecflag);
+}
+
+int StorageManager::loadAnns(CryptoManager &crypto, const QString &path)
+{
+    m_maxAnns = 0;
+    for (int i = 1; i < 367; i++) {
+        m_ann[i].date.clear();
+        m_ann[i].month.clear();
+        m_ann[i].description.clear();
+    }
+
+    TdjEncryptedFile store(crypto);
+    int r = store.open(path, crypto.readKey32(0));
+    if (r != TdjFieldOk)
+        return r;
+    TdjFieldSource &fs = store.source();
+
+    for (int i = 1; i < 367; i++) {
+        QByteArray date, month, desc;
+        qint32 len;
+        int k = fs.readLen(len);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        if (fs.readBody(len, date) == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        k = fs.readLen(len);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        if (fs.readBody(len, month) == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        k = fs.readLen(len);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        if (fs.readBody(len, desc) == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        m_ann[i].date = QString::fromUtf8(date);
+        m_ann[i].month = QString::fromUtf8(month);
+        m_ann[i].description = QString::fromUtf8(desc);
+        if (m_ann[i].description.size() > 0)
+            m_maxAnns++;
+    }
+    return TdjFieldOk;
+}
+
+bool StorageManager::saveAnns(CryptoManager &crypto, const QString &path,
+                              int inivecflag)
+{
+    QByteArray body;
+    for (int i = 1; i < 367; i++) {
+        tdj_append_field(body, m_ann[i].date.toUtf8());
+        tdj_append_field(body, m_ann[i].month.toUtf8());
+        tdj_append_field(body, m_ann[i].description.toUtf8());
+    }
+    return TdjEncryptedFile::write(crypto, path, Tdj2Anns, body, inivecflag);
+}
+
+static bool store_field_exists_and_sane(TdjFieldSource &fs, qint32 *outLen)
+//read one length prefix; helper for the contacts/lists readers
+{
+    qint32 len;
+    int k = fs.readLen(len);
+    if (k == TdjFieldEof || k == TdjFieldCorrupt)
+        return false;
+    *outLen = len;
+    return true;
+}
+
+int StorageManager::loadContacts(CryptoManager &crypto, const QString &path,
+                                 QVector<TdjGroup> &groups)
+{
+    groups.clear();
+    TdjEncryptedFile store(crypto);
+    int r = store.open(path, crypto.readKey32(0));
+    if (r != TdjFieldOk)
+        return r;
+    TdjFieldSource &fs = store.source();
+
+    int toplevelcount;
+    if (fs.readRaw(reinterpret_cast<char *>(&toplevelcount), 4) != 1)
+        return TdjFieldCorrupt;
+    if (toplevelcount < 0 || toplevelcount > kMaxFieldBytes)
+        return TdjFieldCorrupt;
+
+    for (int i = 0; i < toplevelcount; i++) {
+        TdjGroup g;
+        qint32 len;
+        QByteArray name, gdesc;
+        if (!store_field_exists_and_sane(fs, &len))
+            return TdjFieldCorrupt;
+        if (fs.readBody(len, name) == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        if (!store_field_exists_and_sane(fs, &len))
+            return TdjFieldCorrupt;
+        if (fs.readBody(len, gdesc) == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        g.name = QString::fromUtf8(name);
+        g.desc = QString::fromUtf8(gdesc);
+
+        int contact_count;
+        if (fs.readRaw(reinterpret_cast<char *>(&contact_count), 4) != 1)
+            return TdjFieldCorrupt;
+        if (contact_count < 0 || contact_count > kMaxFieldBytes)
+            return TdjFieldCorrupt;
+
+        for (int j = 0; j < contact_count; j++) {
+            TdjItem it;
+            QByteArray cname, cdata;
+            if (!store_field_exists_and_sane(fs, &len))
+                return TdjFieldCorrupt;
+            if (fs.readBody(len, cname) == TdjFieldCorrupt)
+                return TdjFieldCorrupt;
+            if (!store_field_exists_and_sane(fs, &len))
+                return TdjFieldCorrupt;
+            if (fs.readBody(len, cdata) == TdjFieldCorrupt)
+                return TdjFieldCorrupt;
+            it.name = QString::fromUtf8(cname);
+            it.data = QString::fromUtf8(cdata);
+            g.items.append(it);
+        }
+        groups.append(g);
+    }
+    return TdjFieldOk;
+}
+
+bool StorageManager::saveContacts(CryptoManager &crypto, const QString &path,
+                                  int inivecflag,
+                                  const QVector<TdjGroup> &groups)
+{
+    QByteArray body;
+    int toplevelcount = groups.size();
+    body.append(reinterpret_cast<const char *>(&toplevelcount), 4);
+
+    for (const TdjGroup &g : groups) {
+        tdj_append_field(body, g.name.toUtf8());
+        tdj_append_field(body, g.desc.toUtf8());
+        int contact_count = g.items.size();
+        body.append(reinterpret_cast<const char *>(&contact_count), 4);
+        for (const TdjItem &it : g.items) {
+            tdj_append_field(body, it.name.toUtf8());
+            tdj_append_field(body, it.data.toUtf8());
+        }
+    }
+
+    return TdjEncryptedFile::write(crypto, path, Tdj2Contacts, body, inivecflag);
+}
+
+int StorageManager::loadLists(CryptoManager &crypto, const QString &path,
+                              QVector<TdjList> &lists)
+{
+    lists.clear();
+    TdjEncryptedFile store(crypto);
+    int r = store.open(path, crypto.readKey32(0));
+    if (r != TdjFieldOk)
+        return r;
+    TdjFieldSource &fs = store.source();
+
+    int toplevelcount;
+    if (fs.readRaw(reinterpret_cast<char *>(&toplevelcount), 4) != 1)
+        return TdjFieldCorrupt;
+    if (toplevelcount < 0 || toplevelcount > kMaxFieldBytes)
+        return TdjFieldCorrupt;
+
+    for (int i = 0; i < toplevelcount; i++) {
+        TdjList l;
+        QByteArray name, data;
+        qint32 len;
+        if (!store_field_exists_and_sane(fs, &len))
+            return TdjFieldCorrupt;
+        if (fs.readBody(len, name) == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        if (!store_field_exists_and_sane(fs, &len))
+            return TdjFieldCorrupt;
+        if (fs.readBody(len, data) == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        l.name = QString::fromUtf8(name);
+        l.data = QString::fromUtf8(data);
+        lists.append(l);
+    }
+    return TdjFieldOk;
+}
+
+bool StorageManager::saveLists(CryptoManager &crypto, const QString &path,
+                               int inivecflag, const QVector<TdjList> &lists)
+{
+    QByteArray body;
+    int toplevelcount = lists.size();
+    body.append(reinterpret_cast<const char *>(&toplevelcount), 4);
+
+    for (const TdjList &l : lists) {
+        tdj_append_field(body, l.name.toUtf8());
+        tdj_append_field(body, l.data.toUtf8());
+    }
+
+    return TdjEncryptedFile::write(crypto, path, Tdj2Lists, body, inivecflag);
+}
+
+// ---------------------------------------------------------------------------
+// Encrypted attachment store. One TDJ2 container (Tdj2Attachments) whose body
+// is a field stream: for each attachment, [len][id][len][image bytes]. The id
+// is the content address "tdj-image:" + lowercase hex SHA-256, so importing
+// the same bytes twice produces the same id and the store never duplicates.
+// ---------------------------------------------------------------------------
+
+QStringList tdj_attachment_refs(const QString &html)
+{
+    static const QRegularExpression ref(
+        "tdj-image:[0-9a-fA-F]+",
+        QRegularExpression::CaseInsensitiveOption);
+    QStringList out;
+    QRegularExpressionMatchIterator it = ref.globalMatch(html);
+    while (it.hasNext()) {
+        QString id = it.next().captured(0);
+        if (!out.contains(id, Qt::CaseInsensitive))
+            out.append(id);
+    }
+    return out;
+}
+
+int StorageManager::loadAttachments(CryptoManager &crypto, const QString &path,
+                                    int inivecflag)
+{
+    m_attachments.clear();
+
+    TdjEncryptedFile store(crypto);
+    int r = store.open(path, crypto.readKey32(inivecflag));
+    if (r != TdjFieldOk)
+        return r;//Eof (no store yet) or Corrupt
+
+    TdjFieldSource &fs = store.source();
+    while (true) {
+        qint32 len;
+        int k = fs.readLen(len);
+        if (k == TdjFieldEof)
+            break;//clean end
+        if (k == TdjFieldCorrupt || len > kMaxFieldBytes)
+            return TdjFieldCorrupt;
+        QByteArray id;
+        if (fs.readBody(len, id) == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        k = fs.readLen(len);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt || len > kMaxFieldBytes)
+            return TdjFieldCorrupt;
+        QByteArray bytes;
+        if (fs.readBody(len, bytes) == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        m_attachments.insert(QString::fromUtf8(id), bytes);
+    }
+    return TdjFieldOk;
+}
+
+bool StorageManager::saveAttachments(CryptoManager &crypto, const QString &path,
+                                     int inivecflag)
+{
+    if (inivecflag == 0 && m_attachments.isEmpty()) {
+        QFile::remove(path);//no attachments -> no file (mirrors the month stores)
+        return true;
+    }
+
+    QByteArray body;
+    QHash<QString, QByteArray>::const_iterator i = m_attachments.constBegin();
+    while (i != m_attachments.constEnd()) {
+        tdj_append_field(body, i.key().toUtf8());
+        tdj_append_field(body, i.value());
+        ++i;
+    }
+    return TdjEncryptedFile::write(crypto, path, Tdj2Attachments, body,
+                                   inivecflag);
+}
+
+QString StorageManager::putAttachment(const QByteArray &bytes)
+{
+    if (bytes.isEmpty() || bytes.size() > kMaxAttachmentBytes)
+        return QString();
+
+    QString id = "tdj-image:"
+        + QString::fromLatin1(QCryptographicHash::hash(bytes,
+                            QCryptographicHash::Sha256).toHex());
+    m_attachments.insert(id, bytes);
+    return id;
+}
+
+bool StorageManager::getAttachment(const QString &id, QByteArray &out) const
+{
+    QHash<QString, QByteArray>::const_iterator i = m_attachments.constFind(id);
+    if (i == m_attachments.constEnd())
+        return false;
+    out = i.value();
+    return true;
+}
+
+QSet<QString> StorageManager::attachmentIds() const
+{
+    QSet<QString> ids;
+    QHash<QString, QByteArray>::const_iterator i = m_attachments.constBegin();
+    while (i != m_attachments.constEnd()) {
+        ids.insert(i.key());
+        ++i;
+    }
+    return ids;
+}
+
+void StorageManager::pruneAttachments(const QSet<QString> &keep)
+{
+    QMutableHashIterator<QString, QByteArray> i(m_attachments);
+    while (i.hasNext()) {
+        i.next();
+        if (!keep.contains(i.key()))
+            i.remove();
+    }
 }
