@@ -1,10 +1,10 @@
 What is tdj4?
-------------
+-------------
 The letters in "tdj4" stand for "The Daily Journal". It is a PIM program, and
 is also the name of the binary executable. It is written using the Qt toolkit from
 www.qt.io.
 
-This is version 4-0.2.
+This is version 4.1
 
 More information below, if you still want to read on.
 
@@ -58,8 +58,7 @@ as wellas your hard disk.
 
 Availability
 ------------
-The Daily Journal is available as source code to compile on your own machine, or
-as a package containing binaries to install and use.
+The Daily Journal is available as source code to compile on your own machine.
 
 Compiling the source
 --------------------
@@ -70,7 +69,6 @@ The repository is public. Anyone can check out the branch onto her local machine
 
 In addition, you will need the libraries and developement files from Qt, which are
 available from the depository of your Linux distribution or from www.qt.io.
-The current source tree compiles and runs using Qt version 5.15.3.
 
 Also required are the development files and libraries of the GNU Cryptographic library.
 They can be found from the GNU website, www.gnu.org, as well as the Linux distribution
@@ -80,16 +78,15 @@ If you are using QtCreator, load the project file tdj4.pro which is available in
 package. Select the version you want to build (debug version or release version) and hit
 Ctrl-B. If there are no problems, this should build the binary.
 
-The program has been compiled and tested on version 5.15.3 of Qt, under Ubuntu
-22.04.3.
+The current source tree compiles and runs using Qt6 version 6.11 under Suse Tumbleweed.
 
 The binary may be stored locally in a directoriy separate from the source subdirectory,
 depending on how QtCreator is configured. This location will be available within QtCreator.
 
 If you are not using QtCreator, running the comand:
-qmake tdj4.pro
+>qmake6 tdj4.pro
 should create a Makefile for your system. Then, running:
-make
+>make
 should create a running binary.
 
 When the program is executed, tdj4 searches for a hidden subdirectory called
@@ -101,7 +98,7 @@ Exit the program and copy the help and image files in the downloaded package to 
 hidden data subdirectory. Either use a file manager or open a terminal and do the
 following from within the tdj4 subdirectory:
 
-cp tdjhelp.* ~/.cryptdj
+cp tdjhelp.pdf ~/.cryptdj
 cp COPYING ~/.cryptdj
 
 Remember to put the dot (".") in the right place. This will make the on-line help
@@ -117,17 +114,39 @@ sudo cp ./tdj4 /usr/local/bin/tdj4
 Enter the password when prompted.
 
 If your preferred language locale is German, and you wish that the program present
-its user interface also in theGerman language, then the file containing the
+its user interface also in the German language, then the file containing the
 translations should be in the same location as the program binary, so copy it there
 as well:
 cp ./tdj4_de.qm /usr/local/bin/tdj4_de.qm
 
-Changes in version 4-0.2
-------------------------
-1. Changed the "Lists" tab to "Notes" along with associated user-facing text.
-Internal source code and filenames still refer to "lists" everywhere. Somehow the word conveys the meaning
-that one makes to-do-lists all the time, even when they may be just notes on miscellaneous topics.
+If your preferred language locale is Hindi, and you wish that the program present
+its user interface also in the Hindi language, then the file containing the
+translations should be in the same location as the program binary, so copy it there
+as well:
+cp ./tdj4_hi.qm /usr/local/bin/tdj4_hi.qm
 
+
+Changes in version 4.1
+----------------------
+1. Modified file format. Old data will be migrated without user intervention. But keep a
+backup!
+
+2. Added Hindi language translations to render the user interface in Hindi. This is still
+incomplete and being tested. User feedback is welcome, as always.
+
+3. Duplicate menu text rectified.
+
+4. Changed tab titles.
+
+5. Some minor cosmetic changes to the user interface.
+
+6. Encryption/decryption bugs fixed.
+
+7. Appointment alert bug fixed.
+
+8. Calendar is now resizeable.
+
+9. Edited the user manual.
 
 Changes in version 4-0.1
 ------------------------
