@@ -16,7 +16,7 @@ email                : letapk@gmail.com
 
 */
 
-//Last modified 19 June 2022
+//Last modified 19 Sep 2026
 
 #include "tdj.h"
 
@@ -28,14 +28,18 @@ int anniversary_compare (const void *a, const void *b);
 
 void MainWindow::fill_anniversary_items ()
 {
-int i, days;
-QDate *date;
+int i, m;
 
-    date = new QDate (calendar->yearShown(), calendar->monthShown(), 1);
-    days = date->daysInYear();
-
-    for (i = 0; i < days; i++){
-        anncol0[i].setText (anniversary[i+1].month);
+    //fill all 366 table rows. The old code looped over the days of the year,
+    //so in non-leap years the 29 February (row 366) was never displayed.
+    for (i = 0; i < 366; i++){
+        //new data stores a canonical month number; show its localized name.
+        //Legacy files store a localized label which is shown as-is.
+        m = get_month_int (anniversary[i+1].month);
+        if (m >= 1 && m <= 12)
+            anncol0[i].setText (get_month_name (m));
+        else
+            anncol0[i].setText (anniversary[i+1].month);
         anncol1[i].setText (anniversary[i+1].date);
         anncol2[i].setText (anniversary[i+1].description);
     }
@@ -84,12 +88,7 @@ Anniversary *c, *d;
 
 void MainWindow::get_anniversary_items ()
 {
-int i = 0, j, row, days;
-//QString s;
-QDate *date;
-
-    date = new QDate (calendar->yearShown(), calendar->monthShown(), 1);
-    days = date->daysInYear();
+int i, j, row, m;
 
     for (i = 1; i < 367; i++) {
         anniversary[i].date.clear();
@@ -99,13 +98,21 @@ QDate *date;
 
     //table rows run from 0 onwards
     //but are numbered from 1 onwards on the screen
+    //scan all 366 rows (a leap-day entry in the last row was previously lost
+    //in non-leap years)
     j = 1;
-    for (row = 0; row < days; row++) {
-        //s.clear();
+    for (row = 0; row < 366; row++) {
         i = anncol2[row].text().length();
 
         if (i != 0) {//something to save
-            anniversary[j].month = anncol0[row].text();
+            //store a canonical month number so sorting and colouring never
+            //depend on the display locale; a legacy label that cannot be
+            //parsed is kept verbatim
+            m = get_month_int (anncol0[row].text());
+            if (m >= 1 && m <= 12)
+                anniversary[j].month = QString::number (m);
+            else
+                anniversary[j].month = anncol0[row].text();
             anniversary[j].date = anncol1[row].text();
             anniversary[j].description = anncol2[row].text();
             j++;

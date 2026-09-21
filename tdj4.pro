@@ -4,15 +4,11 @@
 #
 #-------------------------------------------------
 
-# Updated 19 June, 2022
-
-QT       += core gui
+QT       += core gui widgets core5compat
 
 #This should be uncommented to produce a compile time error
 #for string literals that are not enclosed within a tr()
 #DEFINES  += QT_NO_CAST_FROM_ASCII
-
-greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 TARGET = tdj4
 TEMPLATE = app
@@ -26,12 +22,14 @@ SOURCES +=\
     tdjprefs.cpp \
     tdjsearch.cpp \
     tdjcal.cpp \
+    tdjstore.cpp \
     tdjcrypt.cpp \
     tdjmain.cpp \
     tdjmisc.cpp
 
 HEADERS  += \
-    tdj.h
+    tdj.h \
+    tdjstore.h
 
 FORMS    +=
 
@@ -49,4 +47,4 @@ unix:!macx:!symbian|win32: LIBS += -lgcrypt
 RESOURCES += \
     tdj.qrc
 
-TRANSLATIONS += tdj4_de.ts
+TRANSLATIONS += tdj4_de.ts tdj4_hi.ts

@@ -16,48 +16,54 @@ email                : letapk@gmail.com
 
 */
 
-//Last modified 19 June 2022
+//Last modified 19 Sep 2026
 
+#include <QEventLoop>
 #include "tdj.h"
+
+//userpath contains the path to the data subdirectory
+extern QString userpath;
 
 void MainWindow::writeprefs()
 {
-    QSettings settings(tr("tdj"), tr("The Daily Journal"));
+    QSettings settings("tdj", "The Daily Journal");
 
-    settings.setValue(tr("pos"), pos());//window position
+    settings.setValue("pos", pos());//window position
 
-    settings.setValue(tr("size"), size());//window size
+    settings.setValue("size", size());//window size
 
-    settings.setValue(tr("weekstart"), weekstrt);//week starts on this day
+    settings.setValue("weekstart", weekstrt);//week starts on this day
 
     if (grid == true)
-        settings.setValue(tr("Grid"), tr("1"));
+        settings.setValue("Grid", "1");
     else
-        settings.setValue(tr("Grid"), tr("0"));
+        settings.setValue("Grid", "0");
 
     if (weeknum == true)
-        settings.setValue(tr("WeekNum"), tr("1"));
+        settings.setValue("WeekNum", "1");
     else
-        settings.setValue(tr("WeekNum"), tr("0"));
+        settings.setValue("WeekNum", "0");
 
-#ifdef Q_OS_LINUX
     if (fortune == true)
-        settings.setValue(tr("Fortune"), tr("1"));
+        settings.setValue("Fortune", "1");
     else
-        settings.setValue(tr("Fortune"), tr("0"));
-#endif
+        settings.setValue("Fortune", "0");
 
-    settings.setValue(tr("Font"), QString(curfont.toString()));//selected font
+    settings.setValue("Font", QString(curfont.toString()));//selected font
 
-    settings.setValue(tr("Startingtab"), tabstart);//starting tab
+    settings.setValue("Startingtab", tabstart);//starting tab
 
     headerred = headercolor.red();
     headergreen = headercolor.green();
     headerblue = headercolor.blue();
 
-    settings.setValue(tr("Headerred"), headerred);//calendar header background colors
-    settings.setValue(tr("Headergreen"), headergreen);//calendar header background colors
-    settings.setValue(tr("Headerblue"), headerblue);//calendar header background colors
+    settings.setValue("Headerred", headerred);//calendar header background colors
+    settings.setValue("Headergreen", headergreen);//calendar header background colors
+    settings.setValue("Headerblue", headerblue);//calendar header background colors
+
+    settings.setValue("leftwidth", leftwidth);//width of the left panel
+
+    settings.setValue("Defdatadir", Datadirectory);
 }
 
 void MainWindow::readprefs()
@@ -66,13 +72,13 @@ int i;
 QString s, s1;
 QFont f;
 
-    QSettings settings(tr("tdj"), tr("The Daily Journal"));
+    QSettings settings("tdj", "The Daily Journal");
 
-    QPoint pos = settings.value(tr("pos"), QPoint(20, 20)).toPoint();
+    QPoint pos = settings.value("pos", QPoint(20, 20)).toPoint();
 
-    QSize size = settings.value(tr("size"), QSize(800, 630)).toSize();
+    QSize size = settings.value("size", QSize(800, 630)).toSize();
 
-    s = settings.value(tr("weekstart"), QString(tr("7"))).toString();
+    s = settings.value("weekstart", "7").toString();
     weekstrt = s.toInt();
     if (weekstrt == 1){
         mon->setChecked(true);
@@ -85,7 +91,7 @@ QFont f;
         weekstartsun(true);
     }
 
-    i = settings.value(tr("Grid"), QString(tr("0"))).toInt();
+    i = settings.value("Grid", "0").toInt();
     if (i == 1) {
         grid = true;
         gridbox->setChecked(true);
@@ -95,7 +101,7 @@ QFont f;
         gridbox->setChecked(false);
     }
 
-    i = settings.value(tr("WeekNum"), QString(tr("0"))).toInt();
+    i = settings.value("WeekNum", "0").toInt();
     if (i == 1) {
         weeknum = true;
         weeknumbox->setChecked(true);
@@ -105,8 +111,7 @@ QFont f;
         weeknumbox->setChecked(false);
     }
 
-#ifdef Q_OS_LINUX
-    i = settings.value(tr("Fortune"), QString(tr("0"))).toInt();
+    i = settings.value("Fortune", "0").toInt();
     if (i == 1) {
         fortune = true;
         fortunebox->setChecked(true);
@@ -115,15 +120,15 @@ QFont f;
         fortune = false;
         fortunebox->setChecked(false);
     }
-#endif
 
     f = QApplication::font();
     s1 = f.toString();
-    s = settings.value(tr("Font"), QString(s1)).toString();
+    s = settings.value("Font", QString(s1)).toString();
     curfont.fromString(s);
     QApplication::setFont(curfont);
+    apply_font_to_calendar(curfont);
 
-    s = settings.value(tr("Startingtab"), QString(tr("0"))).toString();
+    s = settings.value("Startingtab", "0").toString();
     tabstart = s.toInt();
 
     if (tabstart == 0){
@@ -139,12 +144,19 @@ QFont f;
         t4->setChecked(true);
     }
 
-    s = settings.value(tr("Headerred"), QString(tr("0"))).toString();
+    s = settings.value("Headerred", "0").toString();
     headerred = s.toInt();
-    s = settings.value(tr("Headergreen"), QString(tr("255"))).toString();
+    s = settings.value("Headergreen", "255").toString();
     headergreen = s.toInt();
-    s = settings.value(tr("Headerblue"), QString(tr("255"))).toString();
+    s = settings.value("Headerblue", "255").toString();
     headerblue = s.toInt();
+
+    //width of the left panel, remembered from the last divider drag
+    leftwidth = settings.value("leftwidth", leftwidth).toInt();
+
+    s = settings.value("Defdatadir", userpath).toString();
+    if (!s.isEmpty() && QDir(s).exists())
+        Datadirectory = s;
 
     headercolor.setRed(headerred);
     headercolor.setGreen(headergreen);
@@ -152,6 +164,10 @@ QFont f;
 
     resize(size);
     move(pos);
+
+    //resize() has applied the saved window size; lay the panels out again so
+    //the restored leftwidth (and its clamp to this window size) takes effect
+    layout_panels ();
 }
 
 void MainWindow::weekstartsun (bool checked)
@@ -170,7 +186,7 @@ void MainWindow::weekstartmon (bool checked)
     weekstrt = 1;
 }
 
-void MainWindow::set_cal_grid(int)
+void MainWindow::set_cal_grid(Qt::CheckState)
 {
 bool ok;
 
@@ -187,7 +203,7 @@ bool ok;
 
 }
 
-void MainWindow::set_cal_week_num(int)
+void MainWindow::set_cal_week_num(Qt::CheckState)
 {
 bool ok;
 
@@ -204,9 +220,8 @@ bool ok;
 
 }
 
-void MainWindow::fortunestate (int)
+void MainWindow::fortunestate (Qt::CheckState)
 {
-#ifdef Q_OS_LINUX
 bool ok;
 
     ok = fortunebox->isChecked();
@@ -214,7 +229,6 @@ bool ok;
         fortune = true;
     else
         fortune = false;
-#endif
 }
 
 void MainWindow::select_font()
@@ -227,45 +241,72 @@ QFont f;
         //set the user selected font everywhere
         QApplication::setFont(f);
         curfont = f;
+        apply_font_to_calendar(f);
+
+        //a larger font makes the calendar want more room: let the font change
+        //propagate, then widen the left panel (within limits) so it is not
+        //clipped. The divider lets the user adjust it further.
+        QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        calendar->updateGeometry();
+        int needed = calendar->sizeHint().width() + 20;
+        if (leftwidth < needed)
+            leftwidth = needed;
+        layout_panels ();
     } else {
         return;
     }
 }
 
+void MainWindow::apply_font_to_calendar(const QFont &font)
+//with the compact stylesheet on it, the calendar's internal navigation
+//buttons (prev/next month, month and year pickers) keep the font they had
+//when the stylesheet was applied and ignore application font changes, so
+//push the font onto every qt_calendar_* child whenever it is set
+{
+    calendar->setFont(font);
+    const QList<QWidget *> kids = calendar->findChildren<QWidget *>();
+    for (QWidget *w : kids)
+        if (w->objectName().startsWith("qt_calendar_"))
+            w->setFont(font);
+}
+
 void MainWindow::create_prefs_weekgrp_box ()
 {
-    weekbox = new QGroupBox ();
+QButtonGroup *wkbox;
+
+    weekbox = new QGroupBox (tr("General"));
+
+    wkbox = new QButtonGroup ();
     sun = new QRadioButton (tr("The week begins on S&unday"));
     sun->setToolTip(tr("The calendar will show the week beginning on a Sunday"));
-    connect (sun, SIGNAL(clicked(bool)), this, SLOT(weekstartsun (bool)));
+    connect (sun, &QRadioButton::clicked, this, &MainWindow::weekstartsun);
     sun->setChecked(true);
 
     mon = new QRadioButton(tr("The week begins on &Monday"));
     mon->setToolTip(tr("The calendar will show the week beginning on a Monday"));
-    connect (mon, SIGNAL(clicked(bool)), this, SLOT(weekstartmon (bool)));
+    connect (mon, &QRadioButton::clicked, this, &MainWindow::weekstartmon);
+
+    wkbox->addButton (sun);
+    wkbox->addButton (mon);
 
     gridbox = new QCheckBox (tr("Draw grid l&ines in the calendar"));
     gridbox->setToolTip(tr("The calendar will draw lines between adjacent dates"));
-    connect (gridbox, SIGNAL(stateChanged(int)), this, SLOT(set_cal_grid (int)));
+    connect (gridbox, &QCheckBox::checkStateChanged, this, &MainWindow::set_cal_grid);
 
     weeknumbox = new QCheckBox (tr("Show the &week numbers in the calendar"));
     weeknumbox->setToolTip(tr("The leftmost column shows the week number"));
-    connect (weeknumbox, SIGNAL(stateChanged(int)), this, SLOT(set_cal_week_num (int)));
+    connect (weeknumbox, &QCheckBox::checkStateChanged, this, &MainWindow::set_cal_week_num);
 
-#ifdef Q_OS_LINUX
     fortunebox = new QCheckBox(tr("Show a &quote from \"fortune\" in blank notes"), prefs);
     fortunebox->setToolTip(tr("If the 'fortune' program is installed, blank notes will display a quote"));
-    connect (fortunebox, SIGNAL(stateChanged(int)), this, SLOT(fortunestate (int)));
-#endif
+    connect (fortunebox, &QCheckBox::checkStateChanged, this, &MainWindow::fortunestate);
 
     QVBoxLayout *vbox = new QVBoxLayout;
     vbox->addWidget(sun);
     vbox->addWidget(mon);
     vbox->addWidget(gridbox);
     vbox->addWidget(weeknumbox);
-#ifdef Q_OS_LINUX
     vbox->addWidget(fortunebox);
-#endif
 
     weekbox->setLayout(vbox);
     weekbox->setFlat(true);
@@ -275,18 +316,18 @@ void MainWindow::create_prefs_tabgrp_box ()
 {
     tabbox = new QGroupBox (tr("When the pro&gram starts display :"));
 
-    t1 = new QRadioButton (tr("Notes"));//index 0
-    connect (t1, SIGNAL(clicked(bool)), this, SLOT(tab_start (bool)));
+    t1 = new QRadioButton (tr("Journal"));//index 0
+    connect (t1, &QRadioButton::clicked, this, &MainWindow::tab_start);
     t1->setChecked(true);
 
     t2 = new QRadioButton (tr("Appointments"));//index 1
-    connect (t2, SIGNAL(clicked(bool)), this, SLOT(tab_start (bool)));
+    connect (t2, &QRadioButton::clicked, this, &MainWindow::tab_start);
 
     t3 = new QRadioButton (tr("Contacts"));//index 2
-    connect (t3, SIGNAL(clicked(bool)), this, SLOT(tab_start (bool)));
+    connect (t3, &QRadioButton::clicked, this, &MainWindow::tab_start);
 
-    t4 = new QRadioButton (tr("Lists"));//index 3
-    connect (t4, SIGNAL(clicked(bool)), this, SLOT(tab_start (bool)));
+    t4 = new QRadioButton (tr("Notes"));//index 3
+    connect (t4, &QRadioButton::clicked, this, &MainWindow::tab_start);
 
     QVBoxLayout *vbox = new QVBoxLayout;
     vbox->addWidget(t1);

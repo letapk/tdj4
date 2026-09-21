@@ -16,10 +16,9 @@ email                : letapk@gmail.com
 
 */
 
-//Last modified 19 June 2022
+//Last modified 19 Sep 2026
 
 #include "tdj.h"
-#include <QTextCodec>
 
 void MainWindow::save_list ()
 //item changed
@@ -53,10 +52,10 @@ QString s;
     con_item = new QTreeWidgetItem (listree);
 
     s.clear();
-    s.append(tr("New list"));
+    s.append(tr("New note"));
     con_item->setText(0, s);
     s.clear();
-    s.append(tr("New list"));
+    s.append(tr("New note"));
     con_item->setText(1, s);
 
     cur_list = con_item;
@@ -64,7 +63,7 @@ QString s;
     listree->setCurrentItem(cur_list);
     listreeempty = false;
 
-    statustext->setText(tr("Added an empty list"));
+    statustext->setText(tr("Added an empty note"));
     show_list();
 }
 
@@ -77,21 +76,9 @@ int i;
     i = tabcontainer->indexOf(listed);
     tabcontainer->setCurrentIndex(i);
 
-    //first way
     s.clear();
     s.append(cur_list->text(1));
     listeditor->setHtml(s);
-
-    //second way
-    //QTextDocument *doc = new QTextDocument ();
-    //doc->setHtml(cur_list->text(1));
-    //listeditor->setDocument(doc);
-
-    //third way
-    //QByteArray data = (cur_list->text(1)).toUtf8();
-    //QTextCodec *codec = Qt::codecForHtml(data);
-    //s = codec->toUnicode(data);
-    //listeditor->setHtml(s);
 
 }
 
@@ -107,7 +94,7 @@ QString s;
     s = doc->toPlainText();
 
     if (s.length() != 0){
-        statustext->setText(tr("List contains data. Please delete that, first."));
+        statustext->setText(tr("Note contains data. Please delete that, first."));
         return;
     }
 
@@ -118,7 +105,7 @@ QString s;
 
     if (above != NULL){//there is an item above
         listree->takeTopLevelItem(j);
-        statustext->setText(tr("List deleted"));
+        statustext->setText(tr("Note deleted"));
 
         listree->setCurrentItem(above);
         cur_list = above;
@@ -128,7 +115,7 @@ QString s;
     }
     else if (below != NULL) {//no item above but there is an item below
         listree->takeTopLevelItem(j);
-        statustext->setText(tr("List deleted"));
+        statustext->setText(tr("Note deleted"));
 
         listree->setCurrentItem(cur_list);
         cur_list = below;
@@ -139,6 +126,6 @@ QString s;
     else {//cur_list is the last item
         listree->takeTopLevelItem(j);
         listreeempty = true;
-        statustext->setText(tr("Last list deleted"));
+        statustext->setText(tr("Last note deleted"));
     }
 }

@@ -16,24 +16,14 @@ email                : letapk@gmail.com
 
 */
 
-//Last modified 19 June 2022
-
-#define TESTING 0
+//Last modified 19 Sep 2026
 
 #include <QHeaderView>
 #include <QInputDialog>
+#include <QTextBlock>
+#include <QFileDialog>
 
 #include "tdj.h"
-#include <gcrypt.h>
-
-extern char OldaesSymKey[];//old password
-extern char NewaesSymKey[];//new password
-
-extern char iniVector[], newiniVector[];
-
-extern size_t blkLength;
-
-extern int initialize_gcrypt (void);
 
 //notes for the month on display, begins from 1
 Note note[32];
@@ -48,7 +38,7 @@ QString Lockfilename, userpath;
 bool setpwd = false;
 
 bool check_lockfile(void);
-void create_lockfile ();
+bool create_lockfile ();
 void delete_lockfile ();
 void clean_up_and_quit ();
 
@@ -64,30 +54,24 @@ int i;
     Q_INIT_RESOURCE(tdj);
     QApplication app(argc, argv);
 
+    //translations are optional: install only the ones actually found, so a
+    //missing locale simply leaves the program in its source language
     QTranslator appTranslator;
-    appTranslator.load("tdj4_" + QLocale::system().name(), qApp->applicationDirPath());
-    app.installTranslator(&appTranslator);
+    if (appTranslator.load("tdj4_" + QLocale::system().name(), qApp->applicationDirPath()))
+        app.installTranslator(&appTranslator);
 
     QTranslator qtTranslator;
-    qtTranslator.load("qt_" + QLocale::system().name(), qApp->applicationDirPath());
-    app.installTranslator(&qtTranslator);
+    if (qtTranslator.load("qt_" + QLocale::system().name(), qApp->applicationDirPath()))
+        app.installTranslator(&qtTranslator);
 
-    //get the path to the user's home directory
+    //data directory: ~/.cryptdj by default. TDJ_DATA_DIR overrides it (used
+    //to point the program at a throwaway database for testing).
     userpath.clear();
-#ifdef Q_OS_WIN
-    //c:\Users\{account-name}
-    userpath.append (getenv ("USERPROFILE"));
-#else
-    //home/{account-name}
-    userpath.append (getenv ("HOME"));
-#endif
-
-    if (TESTING == 1) {
-        userpath.append("/.tdjenctest");//home/{account-name}/.tdjenctest
-    }
-    else {
-        userpath.append("/.cryptdj");//home/{account-name}/.cryptdj
-    }
+    QByteArray dataDirOverride = qgetenv("TDJ_DATA_DIR");
+    if (dataDirOverride.isEmpty() == false)
+        userpath.append (QString::fromLocal8Bit(dataDirOverride));
+    else
+        userpath.append (QDir::homePath() + "/.cryptdj");
 
     //check for the tdj data directory and create it if required
     check_qtdata_dir();
@@ -96,7 +80,7 @@ int i;
     Lockfilename.append (userpath);
     Lockfilename.append ("/tdjlockfile.tdj");
 
-    i = initialize_gcrypt ();
+    i = CryptoManager::init ();
     if (i != 0){//error in initialization of gcrypt
         QMessageBox msgBox;
         msgBox.setText ("Error in initialization of GNU cryptographic library. Click OK to terminate.");
@@ -104,12 +88,18 @@ int i;
         return 0;
     }
 
-    if (TESTING == 0) {
-        ok = check_lockfile ();
-        if (ok == false)//lockfile present, exit
-            return 0;
+    ok = check_lockfile ();
+    if (ok == false)//lockfile present, exit
+        return 0;
+    if (create_lockfile () == false) {//no single-instance protection: abort
+        QMessageBox msgBox;
+        msgBox.setText (QObject::tr("The program could not create its lock file. "
+                                    "The data directory may not be writable, or another "
+                                    "instance may be using it. The program will now "
+                                    "terminate."));
+        msgBox.exec();
+        return 1;
     }
-    create_lockfile ();
 
     MainWindow mainwindow;
     mainwindow.setWindowTitle(QObject::tr("The Daily Journal"));
@@ -128,38 +118,49 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     this->setMinimumHeight(500);
     this->setMinimumWidth(500);
 
+    //width of the left (calendar/trees) panel, changed by dragging the divider
+    leftwidth = 300;
+    divider_dragging = false;
+
     //main menu
     filemenu = menuBar()->addMenu(tr("&File"));
 
     QAction *chpwd = new QAction (tr("Change pass&word"), this);
     filemenu->addAction(chpwd);
-    connect(chpwd, SIGNAL(triggered()), this, SLOT(change_password()));
+    connect(chpwd, &QAction::triggered, this, &MainWindow::change_password);
 
-    QAction *savenotes = new QAction (tr("Export &notes as text"), this);
+    //two distinct exports: the per-day Journal, and the Notes tab (the former
+    //"Lists" tab). They used to share the same label, which looked like a
+    //duplicate menu entry.
+    QAction *savenotes = new QAction (tr("Export &journal as text"), this);
     filemenu->addAction(savenotes);
-    connect(savenotes, SIGNAL(triggered()), this, SLOT(save_notes_as_text()));
+    connect(savenotes, &QAction::triggered, this, &MainWindow::save_notes_as_text);
 
-    QAction *savelists = new QAction (tr("Export &lists as text"), this);
+    QAction *savelists = new QAction (tr("Export &notes as text"), this);
     filemenu->addAction(savelists);
-    connect(savelists, SIGNAL(triggered()), this, SLOT(save_lists_as_text()));
+    connect(savelists, &QAction::triggered, this, &MainWindow::save_lists_as_text);
 
     QAction *quit = new QAction(tr("E&xit"), this);
     filemenu->addAction(quit);
-    connect(quit, SIGNAL(triggered()), this, SLOT(save_and_quit()));
+    connect(quit, &QAction::triggered, this, &MainWindow::save_and_quit);
 
     helpmenu = menuBar()->addMenu(tr("&Help"));
 
     QAction *helpitem = new QAction(tr("&Help"), this);
     helpmenu->addAction(helpitem);
-    connect(helpitem, SIGNAL(triggered()), this, SLOT(help()));
+    connect(helpitem, &QAction::triggered, this, &MainWindow::help);
 
     QAction *aboutitem = new QAction(tr("&About"), this);
     helpmenu->addAction(aboutitem);
-    connect(aboutitem, SIGNAL(triggered()), this, SLOT(about()));
+    connect(aboutitem, &QAction::triggered, this, &MainWindow::about);
 
     QAction *aboutQtitem = new QAction(tr("About &Qt"), this);
     helpmenu->addAction(aboutQtitem);
-    connect(aboutQtitem, SIGNAL(triggered()), qApp, SLOT(aboutQt()));
+    connect(aboutQtitem, &QAction::triggered, qApp, &QApplication::aboutQt);
+
+    //this is the default data subdirectory
+    Datadirectory.clear();
+    Datadirectory.append(userpath);
 
     //---------------------LEFT side
 
@@ -172,39 +173,49 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     calendar->setMaximumDate(QDate(3000, 12, 31));
     calendar->showToday();
 
-    connect (calendar, SIGNAL(selectionChanged()), this, SLOT(load_day()));
-    connect (calendar, SIGNAL(currentPageChanged(int, int)), this, SLOT(load_month()));
+    //compact day cells: the style default adds a wide margin around every day,
+    //growing the gaps between dates and, with a larger application font,
+    //pushing the bottom week rows out of the widget. Shrinking the padding
+    //keeps the gaps small; layout_panels() then gives the calendar the full
+    //height its content needs so every day of the month is visible.
+    calendar->setStyleSheet(
+        "QCalendarWidget QAbstractItemView { padding: 3px;"
+        " selection-background-color: palette(highlight);"
+        " selection-color: palette(highlightedText); }");
+
+    connect (calendar, &QCalendarWidget::selectionChanged, this, &MainWindow::load_day);
+    connect (calendar, &QCalendarWidget::currentPageChanged, this, &MainWindow::load_month);
 
     todaybut.setParent(this);
     todaybut.setGeometry(10, 235, 300, 25);
     todaybut.setToolTip(tr("Click to go to today's date"));
-    connect (&todaybut, SIGNAL(clicked(bool)), this, SLOT(go_to_today()));
+    connect (&todaybut, &QPushButton::clicked, this, &MainWindow::go_to_today);
 
     //buttons for tree of contacts
     catbut.setParent(this);
     catbut.setGeometry(10, 270, 100, 25);
     catbut.setText (tr("&Group"));
     catbut.setToolTip(tr("Create a new group of contacts"));
-    connect (&catbut, SIGNAL(clicked(bool)), this, SLOT(add_category()));
+    connect (&catbut, &QPushButton::clicked, this, &MainWindow::add_category);
 
     childbut.setParent(this);
     childbut.setGeometry(120, 270, 90, 25);
     childbut.setText (tr("C&ontact"));
     childbut.setToolTip(tr("Create a new contact within this group"));
-    connect (&childbut, SIGNAL(clicked(bool)), this, SLOT(add_contact()));
+    connect (&childbut, &QPushButton::clicked, this, &MainWindow::add_contact);
 
     delbut.setParent(this);
     delbut.setGeometry(220, 270, 90, 25);
     delbut.setText (tr("&Delete"));
     delbut.setToolTip(tr("Delete this contact"));
-    connect (&delbut, SIGNAL(clicked(bool)), this, SLOT(del_item()));
+    connect (&delbut, &QPushButton::clicked, this, &MainWindow::del_item);
 
     //tree of contacts
     contree = new QTreeWidget (this);
     contree->setGeometry(10, 300, 300, 290);
     contree->setColumnCount(1);
-    connect (contree, SIGNAL(itemChanged(QTreeWidgetItem *, int)), this, SLOT(save_contact ()));
-    connect (contree, SIGNAL(itemClicked(QTreeWidgetItem*,int)), this, SLOT(set_contact (QTreeWidgetItem *)));
+    connect (contree, &QTreeWidget::itemChanged, this, &MainWindow::save_contact);
+    connect (contree, &QTreeWidget::itemClicked, this, &MainWindow::set_contact);
 
     QStringList contreeheader;
     contreeheader << tr("Contacts");
@@ -213,15 +224,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     //buttons for tree of to-do lists
     listbut.setParent(this);
     listbut.setGeometry(10, 270, 100, 25);
-    listbut.setText (tr("&New List"));
-    listbut.setToolTip(tr("Create a new list"));
-    connect (&listbut, SIGNAL(clicked(bool)), this, SLOT(add_list()));
+    listbut.setText (tr("&New Note"));
+    listbut.setToolTip(tr("Create a new note"));
+    connect (&listbut, &QPushButton::clicked, this, &MainWindow::add_list);
 
     delist.setParent(this);
     delist.setGeometry(120, 270, 90, 25);
     delist.setText (tr("&Delete"));
-    delist.setToolTip(tr("Delete this list"));
-    connect (&delist, SIGNAL(clicked(bool)), this, SLOT(del_list()));
+    delist.setToolTip(tr("Delete this note"));
+    connect (&delist, &QPushButton::clicked, this, &MainWindow::del_list);
 
     listbut.hide();
     delist.hide();
@@ -230,14 +241,23 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     listree = new QTreeWidget (this);
     listree->setGeometry(10, 300, 300, 290);
     listree->setColumnCount(1);
-    connect (listree, SIGNAL(itemChanged(QTreeWidgetItem *, int)), this, SLOT(save_list ()));
-    connect (listree, SIGNAL(itemClicked(QTreeWidgetItem*,int)), this, SLOT(set_list (QTreeWidgetItem *)));
-    connect (listree, SIGNAL(itemActivated(QTreeWidgetItem*,int)), this, SLOT(set_list (QTreeWidgetItem *)));
+    connect (listree, &QTreeWidget::itemChanged, this, &MainWindow::save_list);
+    connect (listree, &QTreeWidget::itemClicked, this, &MainWindow::set_list);
+    connect (listree, &QTreeWidget::itemActivated, this, &MainWindow::set_list);
 
     QStringList listreeheader;
-    listreeheader << tr("Lists");
+    listreeheader << tr("Notes");
     listree->setHeaderLabels(listreeheader);
     listree->hide();
+
+    //draggable divider between the left and right panels
+    divider = new QFrame (this);
+    divider->setFrameShape (QFrame::VLine);
+    divider->setFrameShadow (QFrame::Sunken);
+    divider->setCursor (Qt::SplitHCursor);
+    divider->setToolTip (tr("Drag to resize the left panel"));
+    divider->installEventFilter (this);
+    divider->raise();
 
     //---------------------RIGHT side
 
@@ -247,14 +267,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     tabcontainer = new QTabWidget;
     tabcontainer->setParent (this);
     tabcontainer->setGeometry(320, 60, 470, 560);
-    connect (tabcontainer, SIGNAL(currentChanged(int)), this, SLOT(make_tab_visible(int)));
+    connect (tabcontainer, &QTabWidget::currentChanged, this, &MainWindow::make_tab_visible);
 
     //index 0 - notes
     noted = new QWidget ();
     noteditor = new QTextEdit (noted);
-    connect(noteditor, SIGNAL(currentCharFormatChanged(QTextCharFormat)), this, SLOT(currentCharFormatChanged(QTextCharFormat)));
-    connect(noteditor, SIGNAL(cursorPositionChanged()), this, SLOT(cursorPositionChanged()));
-    connect (noteditor, SIGNAL(textChanged()), this, SLOT(save_note()));
+    connect(noteditor, &QTextEdit::currentCharFormatChanged, this, &MainWindow::currentCharFormatChanged);
+    connect(noteditor, &QTextEdit::cursorPositionChanged, this, &MainWindow::cursorPositionChanged);
+    connect (noteditor, &QTextEdit::textChanged, this, &MainWindow::save_note);
 
     fontChanged(noteditor->font());
     colorChanged(noteditor->textColor());
@@ -277,14 +297,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     QStringList appheader;
     appheader << tr("Time") << tr("Details");
     apptable->setHorizontalHeaderLabels(appheader);
-    connect (apptable, SIGNAL(itemChanged(QTableWidgetItem *)), this, SLOT(save_appt_cell (QTableWidgetItem *)));
+    connect (apptable, &QTableWidget::itemChanged, this, &MainWindow::save_appt_cell);
 
     //index 2 - contacts
     contacted = new QWidget ();
     contacteditor = new QTextEdit (contacted);
-    connect(contacteditor, SIGNAL(currentCharFormatChanged(QTextCharFormat)), this, SLOT(currentCharFormatChanged(QTextCharFormat)));
-    connect(contacteditor, SIGNAL(cursorPositionChanged()), this, SLOT(cursorPositionChanged()));
-    connect (contacteditor, SIGNAL(textChanged()), this, SLOT(save_contact()));
+    connect(contacteditor, &QTextEdit::currentCharFormatChanged, this, &MainWindow::currentCharFormatChanged);
+    connect(contacteditor, &QTextEdit::cursorPositionChanged, this, &MainWindow::cursorPositionChanged);
+    connect (contacteditor, &QTextEdit::textChanged, this, &MainWindow::save_contact);
 
     fontChanged(contacteditor->font());
     colorChanged(contacteditor->textColor());
@@ -296,16 +316,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     //index 3 - to-do lists
     listed = new QWidget ();
     listeditor = new QTextEdit (listed);
-    connect(listeditor, SIGNAL(currentCharFormatChanged(QTextCharFormat)), this, SLOT(currentCharFormatChanged(QTextCharFormat)));
-    connect(listeditor, SIGNAL(cursorPositionChanged()), this, SLOT(cursorPositionChanged()));
-    connect (listeditor, SIGNAL(textChanged()), this, SLOT(save_list()));
+    connect(listeditor, &QTextEdit::currentCharFormatChanged, this, &MainWindow::currentCharFormatChanged);
+    connect(listeditor, &QTextEdit::cursorPositionChanged, this, &MainWindow::cursorPositionChanged);
+    connect (listeditor, &QTextEdit::textChanged, this, &MainWindow::save_list);
 
     fontChanged(listeditor->font());
     colorChanged(listeditor->textColor());
     alignmentChanged(listeditor->alignment());
 
     listeditor->setGeometry(10, 10, 450, 540);
-    tabcontainer->addTab (listed, tr("&Lists"));
+    tabcontainer->addTab (listed, tr("&Notes"));
 
     //index 4 - anniversaries
     anni = new QWidget ();
@@ -324,7 +344,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     QStringList annheader;
     annheader << tr("Month") << tr("Date") << tr("Details");
     anntable->setHorizontalHeaderLabels(annheader);
-    connect (anntable, SIGNAL(itemChanged(QTableWidgetItem *)), this, SLOT(save_ann_cell (QTableWidgetItem *)));
+    connect (anntable, &QTableWidget::itemChanged, this, &MainWindow::save_ann_cell);
 
     //index 5 - search
     search = new QWidget ();
@@ -343,7 +363,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     srchbut = new QPushButton (tr("S&earch"), search);
     srchbut->setGeometry(tabcontainer->width()-90, 10, 80, 25);
     srchbut->setToolTip(tr("Click to begin search"));
-    connect (srchbut, SIGNAL(clicked()), this, SLOT(search_data()));
+    connect (srchbut, &QPushButton::clicked, this, &MainWindow::search_data);
 
     srchresults = new QTextEdit (search);
     srchresults->setReadOnly(true);
@@ -363,16 +383,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     headercolbut = new QPushButton (tr("Select calendar h&eader background color"));
     headercolbut->setGeometry(10, 200, 225, 25);
     headercolbut->setToolTip(tr("Click to select a different background color for the day names and the week numbers"));
-    connect (headercolbut, SIGNAL(clicked  ()), this, SLOT(set_header_color()));
+    connect (headercolbut, &QPushButton::clicked, this, &MainWindow::set_header_color);
 
     fontbut = new QPushButton (tr("Select a different fon&t for text not within an editor"), prefs);
     fontbut->setGeometry(10, 280, 225, 25);
     fontbut->setToolTip(tr("Click to select a different font for the application"));
-    connect (fontbut, SIGNAL(clicked  ()), this, SLOT(select_font()));
+    connect (fontbut, &QPushButton::clicked, this, &MainWindow::select_font);
+
+    datadirbut = new QPushButton (tr("Select a different data subdirectory"), prefs);
+    datadirbut->setGeometry(10, 280, 225, 25);
+    datadirbut->setToolTip(tr("Click to select a different data subdirectory for the application"));
+    connect (datadirbut, &QPushButton::clicked, this, &MainWindow::change_directory);
 
     vbox1->addWidget(weekbox);
     vbox1->addWidget(headercolbut);
     vbox1->addWidget(fontbut);
+    vbox1->addWidget(datadirbut);
     vbox1->addWidget(tabbox);
 
     vbox1->addStretch(1);
@@ -385,28 +411,26 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     statustext->setFrameStyle(QFrame::Plain);
     statustext->setAlignment(Qt::AlignBottom);
 
+    //persistent display of the selected date, at the right end of the bar;
+    //unlike statustext it is never overwritten by status messages
+    datelabel = new QLabel (this);
+    datelabel->setFrameStyle(QFrame::NoFrame);
+    datelabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
     //change password dialog
     Chpwdialog = new QDialog (this);
 
     lbl1 = new QLabel(tr("New password:"), Chpwdialog);
     ledt1 = new QLineEdit (Chpwdialog);
     ledt1->setEchoMode(QLineEdit::Password);
-    ledt1->setMaxLength(blkLength);
-    ledt1->setToolTip(tr("16 characters, maximum. Use a complex mix of letters, numbers and special characters"));
+    ledt1->setToolTip(tr("Use a complex mix of letters, numbers and special characters"));
     lbl1->setBuddy(ledt1);
 
     lbl2 = new QLabel(tr("Re-enter new password:"), Chpwdialog);
     ledt2 = new QLineEdit (Chpwdialog);
     ledt2->setEchoMode(QLineEdit::Password);
-    ledt2->setMaxLength(blkLength);
     ledt2->setToolTip(tr("Re-type the password exactly as in the box above"));
     lbl2->setBuddy(ledt2);
-
-    lbl3 = new QLabel(tr("Phrase to encode:"), Chpwdialog);
-    ledt3 = new QLineEdit (Chpwdialog);
-    ledt3->setEchoMode(QLineEdit::Normal);
-    ledt3->setToolTip(tr("Enter a complex phrase or string of characters"));
-    lbl3->setBuddy(ledt3);
 
     okbut = new QPushButton(tr("&OK"));
     cnclbut = new QPushButton(tr("&Cancel"));
@@ -419,17 +443,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     vbox->addWidget(lbl2);
     vbox->addWidget(ledt2);
 
-    vbox->addWidget(lbl3);
-    vbox->addWidget(ledt3);
-
     vbox->addWidget(okbut);
     vbox->addWidget(cnclbut);
-    //QRect *rect = new QRect (10, 10, 450, 450);
-    //vbox->setGeometry(*rect);
     Chpwdialog->setLayout(vbox);
 
-    connect (okbut, SIGNAL(clicked()), this, SLOT(check_password()));
-    connect (cnclbut, SIGNAL(clicked()), this, SLOT(cncl_pwd_change()));
+    connect (okbut, &QPushButton::clicked, this, &MainWindow::check_password);
+    connect (cnclbut, &QPushButton::clicked, this, &MainWindow::cncl_pwd_change);
+
+    //position the left and right panels
+    layout_panels ();
 
     //read the data files and show the note for today
     initialize ();
@@ -452,17 +474,23 @@ int inivecflag = 0;
     //the appointments table shows today's appointments
     //later these values may change if the user selects some other date
 
+    //read the user's preferences
+    readprefs();
+
     //set the Homepath
-    Homepath.append(userpath);
-    //set the working directory to the data subdirectory
-    QDir::setCurrent(Homepath);
+    Homepath.append(Datadirectory);
 
     //do not show fortune by default
-#ifdef Q_OS_LINUX
     fortune = false;
-#endif
+
+    //determine which format the existing data uses and fix the DB salt
+    //(a fresh, per-database salt is created for legacy or new databases)
+    TdjDbState dbstate = (TdjDbState) m_crypto.scanDbState(Homepath);
+    m_crypto.initDbSalt(Homepath);
 
     if (setpwd == true) {
+        //a brand-new database: the password dialog installs the key and
+        //anchors the store set
         change_password();
         setpwd = false;
         ok = true;
@@ -471,23 +499,36 @@ int inivecflag = 0;
         p = QInputDialog::getText (this, tr("Enter password"), tr("Password"), QLineEdit::Password, tr (""), &ok);
         if (ok && !p.isEmpty()) {//enter or OK button
             password.append (p);
-            if (password.length() > 16) {
-                password.chop (password.length() - 16);
+            //same password for the legacy decrypting and encrypting keys
+            m_crypto.setLegacyKey (password);
+
+            //derive the TDJ2 session key from the password
+            m_crypto.deriveSessionKey (password);
+
+            if (dbstate == TdjDbTdj2) {
+                //verify the password against the GCM tag of a store
+                if (m_crypto.verifyPassword(Homepath) == false) {
+                    QMessageBox msgBox;
+                    msgBox.setText (QObject::tr("The password entered does not match the stored data."));
+                    msgBox.setInformativeText (QObject::tr("The program will now terminate"));
+                    msgBox.exec();
+                    delete_lockfile();
+                    std::exit (1);
+                }
             }
-            //for decrypting
-            strcpy (OldaesSymKey, password.toUtf8().data());
-            //for encrypting
-            strcpy (NewaesSymKey, password.toUtf8().data());
-            test_password ();
+            else if (dbstate == TdjDbLegacy || dbstate == TdjDbMixed) {
+                //existing legacy data (or a partially migrated set): the
+                //phrase-confirmation dialog gates the old password
+                test_password ();
+                //one-time migration is completed after the stores are read
+                m_crypto.copySessionToOldAndNew ();
+            }
         }
         else {//escape or Cancel button
             delete_lockfile();
             std::exit (0);
         }
     }
-
-    //read the user's preferences
-    readprefs();
 
     //set calendar preferences
     if (grid == true)
@@ -622,6 +663,19 @@ int inivecflag = 0;
     Anniversaryfilename.append("/Anniversaries.tdj");
     read_ann_file ();
 
+    //all stores are now in memory; migrate any legacy database in place
+    if (dbstate == TdjDbLegacy || dbstate == TdjDbMixed) {
+        reencrypt_all_stores ();
+        //the TDJ2 session key is now in effect for all future saves
+        m_crypto.commitNewToSession ();
+        //the legacy password file served its purpose
+        QFile::remove(Homepath + "/Checkpwd.tdj");
+        //reencrypt_all_stores() left the buffers holding the last month file
+        //it walked; reload the month actually on screen before any save can
+        //copy another month's notes/appointments into it
+        reload_current_month ();
+    }
+
     sort_anniversaries();
 
     //populate anniversary items, if there are any, or with empty strings otherwise
@@ -656,32 +710,34 @@ int inivecflag = 0;
     set_appt_time_array();
     set_next_appointment_timer();
 
-    strcpy (newiniVector, iniVector);
-
     return;
 }
 
 void MainWindow::save_note ()
 //transfer user data from editor to note array
 {
-    note[date_to_show].data.clear();
-    note[date_to_show].length = 0;
+    //save note to memory
+    note[date_to_show].data = noteditor->toHtml();
 
-    note_to_show = noteditor->toHtml();
-    if (note_to_show.isEmpty() == true){//do nothing
-        ;
+    //compute the plain-text emptiness flag cheaply, without re-serialising
+    //the whole document (this runs on every keypress)
+    note[date_to_show].hasText = false;
+    QTextBlock b = noteditor->document()->begin();
+    while (b.isValid()) {
+        if (!b.text().isEmpty()) {
+            note[date_to_show].hasText = true;
+            break;
+        }
+        b = b.next();
     }
-    else {//save note to memory
-        note[date_to_show].data.append(note_to_show);
-        note[date_to_show].length = note_to_show.length();
 
-        statustext->setText(tr("Note saved to buffer"));
-    }
+    //recolour only the edited date - recalculating the whole month on every
+    //keystroke used to build a QTextDocument for each day of the month
+    QTextCharFormat f = calendar->weekdayTextFormat(Qt::Monday);
+    f.setBackground(note[date_to_show].hasText ? QColor(Qt::lightGray) : QColor(Qt::white));
+    calendar->setDateTextFormat(QDate(year, month, date_to_show), f);
 
-    format_notes();
-    format_appointments();
-    format_anniversaries ();
-
+    statustext->setText(tr("Note saved to buffer"));
 }
 
 void MainWindow::save_notes_and_appts()
@@ -736,7 +792,6 @@ QString s;
         note_to_show.append(note[date_to_show].data);
         noteditor->setHtml(note_to_show);
     }
-#ifdef Q_OS_LINUX
     else if (fortune == true) {//empty note, show a fortune
         FILE *f;
         f = popen ("fortune", "r");
@@ -749,12 +804,11 @@ QString s;
 
         pclose (f);
     }
-#endif
     else {//show empty editor window
         noteditor->setHtml(note_to_show);
     }
 
-    statustext->setText((calendar->selectedDate().toString()));
+    datelabel->setText(calendar->selectedDate().toString("ddd d MMM yyyy"));
 }
 
 void MainWindow::load_day()
@@ -812,6 +866,27 @@ int inivecflag = 0;
     format_anniversaries ();
 }
 
+void MainWindow::reload_current_month()
+//re-read the currently displayed month into the in-memory buffers and refresh
+//the editor and tables. Must be called after a re-encryption (migration or
+//password change) commits the new key: reencrypt_all_stores() walks every
+//month file and leaves note[]/appointment[] holding the *last file processed*,
+//so without this reload the next save would write that foreign month's data
+//into the displayed month's file.
+{
+    if (Notefilename.isEmpty() == true)
+        return;//no month selected yet (fresh-database setup)
+
+    read_journal_file (0);
+    read_appt_file (0);
+
+    shownote();
+    fill_appointment_items ();
+
+    format_notes();
+    format_appointments();
+}
+
 void MainWindow::make_tab_visible(int i)
 //show the tab which has been selected and adjust the tree-related buttons if required
 {
@@ -852,37 +927,70 @@ void MainWindow::make_tab_visible(int i)
 
 }
 
+void MainWindow::change_directory()
+//this changes the default data directory
+{
+QString dir;
+QMessageBox msgBox;
+
+    dir = QFileDialog::getExistingDirectory(this,
+        tr("Select the new data directory"), Datadirectory);
+    if (dir.isEmpty())
+        return;//cancelled - nothing was changed
+
+    if (QDir().mkpath(dir) == false) {//cannot create the directory
+        msgBox.setText (tr("The directory could not be created."));
+        msgBox.exec();
+        return;
+    }
+
+    Datadirectory = dir;
+    writeprefs();//persist the new directory via Defdatadir
+
+    msgBox.setWindowTitle(tr("Data directory changed"));
+    msgBox.setText (tr("The new data directory will be used the next time "
+                       "the program starts.\nExisting data is not copied or "
+                       "moved; the new directory must contain a database "
+                       "(or will be created empty)."));
+    msgBox.exec();
+}
+
 void MainWindow::change_password()
 {
 int i;
 QString s;
 
-    //save any unsaved data
-    save_notes_and_appts();
-    save_other_data();
-
-    //clear the text fields
+    //save nothing yet: the key under which the new stores are written is
+    //only known once the dialog has been accepted
     ledt1->clear();
     ledt2->clear();
-    ledt3->clear();
     //execute the dialog
     Chpwdialog->exec();
     //check the result
     i = Chpwdialog->result();
 
     if (i == QDialog::Accepted) {
-        //create a new random initialization vector
-        gcry_create_nonce ((unsigned char *) newiniVector, blkLength);
-        //re-read all the notes and appt data files and decrypt using iniVector and OldaesSymkey
-        //write the data after encrytion using newiniVector and NewaesSymkey
-        re_encrypt_notes_appt_data ();
-        //now the new password and newiniVector is in effect so:
-        strcpy (OldaesSymKey, NewaesSymKey);
-        strcpy (iniVector, newiniVector);
-        //everything else gets saved with the new password and iniVector
-        save_other_data();
-        //encrypt the phrase entered by the user and store it in a file
-        make_password_test_file(phrase_to_encode);
+        if (setpwd == true) {
+            //brand-new database: nothing exists yet. Derive the key from the
+            //confirmed password and anchor a valid, empty TDJ2 store set
+            m_crypto.deriveSessionKey(ledt1->text());
+            m_crypto.copySessionToOldAndNew ();
+            reencrypt_all_stores ();
+        }
+        else {
+            //password change: the in-memory data is still under the old key,
+            //so write it out first, then re-encrypt every store on disk
+            save_notes_and_appts();
+            save_other_data();
+            m_crypto.copySessionToOld ();
+            m_crypto.deriveIntoNewKey(ledt1->text());
+            reencrypt_all_stores ();
+            //the new password is now in effect
+            m_crypto.commitNewToSession ();
+            //reload the displayed month: reencryption left the buffers at the
+            //last file it walked
+            reload_current_month ();
+        }
 
         s = QString (tr("Password changed"));
     }
@@ -899,23 +1007,12 @@ QString s;
 
 void MainWindow::check_password()//user clicked OK
 {
-QString s1, s2, s3, serr;
+QString s1, s2, serr;
 QMessageBox msgBox;
 
     s1 = ledt1->text();
     s2 = ledt2->text();
-    s3 = ledt3->text();
 
-    if (s3.isEmpty() == true){
-        serr.clear();
-        serr.append (QObject::tr("None of the fields can be empty"));
-        msgBox.setText(serr);
-        msgBox.exec();
-        if (setpwd == false)
-            Chpwdialog->reject();
-        else
-            clean_up_and_quit();
-    }
     if (s1 != s2) {
         serr.clear();
         serr.append (QObject::tr("Passwords do not match."));
@@ -936,20 +1033,13 @@ QMessageBox msgBox;
         else
             clean_up_and_quit();
     }
-    else if ((s1 == s2) && (s1.isEmpty() == false) && (s3.isEmpty() == false)) {
+    else {
         serr.clear();
         serr.append (QObject::tr("All the data will be encrypted with this password. "));
-        serr.append (QObject::tr("Enter this password the next time you run The Daily Journal "));
-        serr.append (QObject::tr("and confirm the decoded phrase when it is displayed."));
+        serr.append (QObject::tr("Enter this password the next time you run The Daily Journal. "));
+        serr.append (QObject::tr("There is no way to recover the data if it is forgotten."));
         msgBox.setText(serr);
         msgBox.exec();
-
-        if (s1.length() > 16)
-            s1.chop (s1.length() - 16);
-
-        strcpy (NewaesSymKey, s1.toUtf8().data());
-        phrase_to_encode.clear();
-        phrase_to_encode.append(s3);
 
         Chpwdialog->accept();
     }

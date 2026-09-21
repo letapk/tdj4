@@ -16,13 +16,20 @@ email                : letapk@gmail.com
 
 */
 
-//Last modified 19 June 2022
+//Last modified 19 Sep 2026
+
+//Store read/write for the MainWindow data models (Phase 3, v4-0.4).
+//
+//The binary layouts, the codec, the container and every key/salt/IV now live
+//in the Qt-Core-only storage layer (tdjstore.h / tdjstore.cpp). The methods
+//here only walk the in-memory models, build the plaintext field stream with
+//tdj_append_field(), and hand it to TdjEncryptedFile - the GUI never touches
+//a cipher handle, key buffer, salt or magic byte directly. All crypto state
+//is owned by CryptoManager MainWindow::m_crypto.
 
 #include "tdj.h"
-#include <gcrypt.h>
-#include <unistd.h>
-
-#define GCRY_CIPHER GCRY_CIPHER_AES128   // Pick the cipher here
+#include <QTextDocument>
+#include <QTreeWidgetItem>
 
 extern Note note[];
 extern Appointment appointment[], dailyappt;
@@ -30,269 +37,148 @@ extern Anniversary anniversary [];
 //used while reencrypting data files due to a change in password
 extern QFileInfo reencfileInfo;
 
-QString fname;
-
-int gcry_mode;
-gcry_error_t gcryError;
-gcry_cipher_hd_t gcryCipherHd;
-size_t szt;
-size_t index1, keyLength, blkLength;
-
-size_t txtLength; // string plus termination
-size_t txtLengthpadded; // string plus padded zero characters
-int padding, tdremainder;
-
-char *toencrypt, *encrypted, *todecrypt, *decrypted;
-FILE *encf;
-
-char OldaesSymKey[16];//old password
-char NewaesSymKey[16];//new password
-
-char iniVector[17];//initialization vector
-char newiniVector[17];//initialization vector
-
-void set_decrypt_variables(void);
-void crypt_error_notification (const char *errstr);
-void free_dec_strings (void);
-
-int aesenc (void);
-int aesdec (void);
-
-QMessageBox *msgBox;
-
-int aesenc (void)
-{
-int i;
-
-    //length excludes the end NULL
-    txtLength = strlen (toencrypt);
-
-    //tdremainder which exceeds multiple of blkLength
-    tdremainder = txtLength % blkLength;
-    //no of characters to pad
-    padding = blkLength - tdremainder - 1;
-
-    if (padding != 0) {
-        //pad with required no. of 'x' characters at the end
-        toencrypt = (char *) realloc (toencrypt, size_t (txtLength+padding));
-
-        for (i = 0; i < padding; i++)
-            toencrypt[txtLength+i] = 'x';
-
-        toencrypt[txtLength+padding] = '\0';
-    }
-
-    txtLengthpadded = strlen(toencrypt)+1;
-
-    //allocate memory for buffer to hold encrypted data
-    encrypted = (char *) malloc (txtLengthpadded);
-    strcpy (encrypted, "");
-
-    gcryError = gcry_cipher_setkey(gcryCipherHd, NewaesSymKey, keyLength);
-    if (gcryError) {
-        //printf("gcry_cipher_setkey failed:  %s/%s\n", gcry_strsource(gcryError), gcry_strerror(gcryError));
-        return 1;
-    }
-
-    gcryError = gcry_cipher_setiv(gcryCipherHd, newiniVector, blkLength);
-    if (gcryError) {
-        //printf("gcry_cipher_setiv failed:  %s/%s\n", gcry_strsource(gcryError), gcry_strerror(gcryError));
-        return 1;
-    }
-
-    gcryError = gcry_cipher_encrypt(gcryCipherHd, encrypted, txtLengthpadded, toencrypt, txtLengthpadded);
-    if (gcryError) {
-        //printf("gcry_cipher_encrypt failed:  %s/%s\n", gcry_strsource(gcryError), gcry_strerror(gcryError));
-        return 1;
-    }
-
-    return 0;
-}
-
-int aesdec (void)
-{
-    gcryError = gcry_cipher_setkey(gcryCipherHd, OldaesSymKey, keyLength);
-    if (gcryError) {
-        //printf("gcry_cipher_setkey failed:  %s/%s\n", gcry_strsource(gcryError), gcry_strerror(gcryError));
-        return 1;
-    }
-
-    gcryError = gcry_cipher_setiv(gcryCipherHd, iniVector, blkLength);
-    if (gcryError) {
-        //printf("gcry_cipher_setiv failed:  %s/%s\n", gcry_strsource(gcryError), gcry_strerror(gcryError));
-        return 1;
-    }
-
-    gcryError = gcry_cipher_decrypt(gcryCipherHd, decrypted, txtLengthpadded, todecrypt, txtLengthpadded);
-    if (gcryError) {
-        //printf("gcry_cipher_decrypt failed:  %s/%s\n",gcry_strsource(gcryError), gcry_strerror(gcryError));
-        return 1;
-    }
-
-    decrypted[txtLength] = '\0';
-
-    return 0;
-}
-
-int initialize_gcrypt (void)
+void crypt_error_notification (const char *errstr)
 {
 QString s;
 
-    gcry_mode = GCRY_CIPHER_MODE_CBC;
+    s.append (errstr);
 
-    if (!gcry_check_version (GCRYPT_VERSION)){
-        //printf ("libgcrypt version mismatch\n");
-        return 1;
-    }
-
-    gcryError = gcry_cipher_open(
-        &gcryCipherHd, GCRY_CIPHER, gcry_mode, 0);
-    if (gcryError) {
-        //printf("gcry_cipher_open failed:  %s/%s\n", gcry_strsource(gcryError), gcry_strerror(gcryError));
-        return 1;
-    }
-
-    keyLength = gcry_cipher_get_algo_keylen(GCRY_CIPHER);
-    blkLength = gcry_cipher_get_algo_blklen(GCRY_CIPHER);
-
-    return 0;
+    QMessageBox msgBox;
+    msgBox.setText (s);
+    msgBox.exec();
 }
 
-int close_gcrypt (void)
+void MainWindow::read_journal_file (int inivecflag, const QString &pathOverride)
 {
-    gcry_cipher_close(gcryCipherHd);
-
-    return 0;
-}
-
-void MainWindow::read_journal_file (int inivecflag)
-{
-int i, k;
+int i;
 
     //clear all notes
     for (i = 1; i < 32; i++) {
         note[i].data.clear();
-        note[i].length = 0;
+        note[i].hasText = false;
     }
 
-    if (inivecflag == 1) {//pwd change in progress, filename comes from file list
-        fname.clear();
-        fname.append(Homepath);
-        fname.append("/");
-        fname.append(reencfileInfo.fileName());
-        encf = fopen (fname.toUtf8().data(), "r");
-        //printf ("%s ", fname.toUtf8().data());
+    //the caller may name an explicit file to read (export); otherwise an
+    //in-progress password change reads the next file from the list. The key is
+    //chosen from inivecflag alone, so reading a listed file with the current
+    //session key (export) must pass 0 here.
+    QString path = Notefilename;
+    if (pathOverride.isEmpty() == false) {
+        path = pathOverride;
     }
-    else {//normal data read in progress, filename is Notefilename
-        encf = fopen (Notefilename.toUtf8().data(), "r");
+    else if (inivecflag == 1) {//pwd change in progress, filename comes from file list
+        path = Homepath + "/" + reencfileInfo.fileName();
     }
 
-    if (encf == NULL)
+    TdjEncryptedFile store(m_crypto);
+    int r = store.open(path, m_crypto.readKey32(inivecflag));
+    if (r == TdjFieldEof)
+        return;//file does not exist: nothing to read
+    if (r != TdjFieldOk) {
+        crypt_error_notification ("Error in reading journal data.");
         return;
-
-    szt = fread (&iniVector, sizeof (char), 16, encf);
-    for (i = 1; i <= 31; i++) {
-        //read 31 values and put them into length of the corresponding notes
-        szt = fread (&(note[i].length), sizeof (int), 1, encf);
     }
+    TdjFieldSource &fs = store.source();
 
-    for (i = 1; i <= 31; i++) {
-        if (note[i].length > 0) {
-            txtLength = note[i].length;
-            set_decrypt_variables();
-            //read the data to be decrypted
-            szt = fread (todecrypt, txtLengthpadded, 1, encf);
-
-            //decrypt the data and put it in decrypted
-            k = aesdec ();
-            if (k == 1) {
-                crypt_error_notification ("Error in decryption of journal data.");
+    if (fs.format == 2) {
+        //legacy journal: all 31 day lengths are stored first as plain ints,
+        //then the (decrypted) body of each non-empty day in day order
+        qint32 lens[32] = {};
+        for (i = 1; i <= 31; i++) {
+            int r2 = fs.readLen(lens[i]);
+            if (r2 == TdjFieldEof)//file ends cleanly here, remaining days empty
+                break;
+            if (r2 == TdjFieldCorrupt) {
+                crypt_error_notification ("Error in reading journal data.");
+                return;
             }
-            //put decrypted data into note for this day
-            note[i].data.append(decrypted);
-
-            //free the buffers
-            free_dec_strings ();
         }
+        for (i = 1; i <= 31; i++) {
+            if (lens[i] == 0)//no note for this day
+                continue;
+            QByteArray plain;
+            if (fs.readBody(lens[i], plain) == TdjFieldCorrupt) {
+                crypt_error_notification ("Error in reading journal data.");
+                return;
+            }
+            note[i].data = QString::fromUtf8(plain);
+
+            //cache the plain-text emptiness flag for the calendar colours
+            QTextDocument doc;
+            doc.setHtml(note[i].data);
+            note[i].hasText = !doc.toPlainText().isEmpty();
+        }
+        return;
     }
 
-    fclose (encf);
+    //TDJ2: interleaved [len][body] forward stream, one field per day
+    for (i = 1; i <= 31; i++) {
+        qint32 len;
+        int r2 = fs.readLen(len);
+        if (r2 == TdjFieldEof)//file ends cleanly here, remaining days are empty
+            break;
+        if (r2 == TdjFieldCorrupt) {
+            crypt_error_notification ("Error in reading journal data.");
+            break;
+        }
+        if (len == 0)//no note for this day
+            continue;
+
+        QByteArray plain;
+        r2 = fs.readBody(len, plain);
+        if (r2 == TdjFieldCorrupt) {
+            crypt_error_notification ("Error in reading journal data.");
+            break;
+        }
+
+        note[i].data = QString::fromUtf8(plain);
+
+        //cache the plain-text emptiness flag for the calendar colours
+        QTextDocument doc;
+        doc.setHtml(note[i].data);
+        note[i].hasText = !doc.toPlainText().isEmpty();
+    }
 }
 
 void MainWindow::write_journal_file (int inivecflag)
 {
-QByteArray text;
-QTextDocument *doc;
-QString s;
-int i, j = 0;
+QByteArray body;
+int i;
 
     for (i = 1; i <= 31; i++) {
-        s.clear();
-        doc = new QTextDocument ();
-        doc->setHtml(note[i].data);
-        s = doc->toPlainText();
-        //all this to find the actual length of the note
-        j += s.length();
-        delete doc;
-    }
-
-    if (inivecflag == 1) {//pwd change in progress, filename comes from file list
-        fname.clear();
-        fname.append(Homepath);
-        fname.append("/");
-        fname.append(reencfileInfo.fileName());
-        encf = fopen (fname.toUtf8().data(), "w");
-        //printf ("%s \n", fname.toUtf8().data());
-        if (encf == NULL)
-            return;
-        fwrite (&newiniVector, sizeof (char), 16, encf);
-    }
-    else {//normal data write in progress, filename is Notefilename
-        if (j == 0) {//nothing to save
-            unlink (Notefilename.toUtf8().data());
-            return;
+        QByteArray utf8 = note[i].data.toUtf8();
+        if (utf8.isEmpty()) {//write an empty length prefix, no data
+            tdj_append_field(body, QByteArray());
+            continue;
         }
-        encf = fopen (Notefilename.toUtf8().data(), "w");
-        if (encf == NULL)
-            return;
-        fwrite (&iniVector, sizeof (char), 16, encf);
+        tdj_append_field(body, utf8);
     }
 
-    for (i = 1; i <= 31; i++) {
-        fwrite (&(note[i].length), sizeof (int), 1, encf);
-    }
-
-    for (i = 1; i <= 31; i++) {
-        if (note[i].length > 0) {
-
-            text = note[i].data.toUtf8();
-            //size excludes the end NULL
-            toencrypt = (char *) malloc (text.size() + 1);
-            strcpy(toencrypt, "");
-            //toencrypt contains the data to be encrypted
-            strcpy(toencrypt, text.data());
-
-            j = aesenc ();
-            if (j == 1) {
-                crypt_error_notification ("Error in encryption of journal data.");
+    QString target = Notefilename;
+    if (inivecflag == 1)//pwd change / migration: write the re-encrypted copy
+        target = Homepath + "/" + reencfileInfo.fileName() + ".new";
+    else {//normal save: a month with no notes leaves no file behind
+        bool any = false;
+        for (i = 1; i <= 31; i++) {
+            if (note[i].hasText) {
+                any = true;
+                break;
             }
-
-            //save the encrypted data
-            fwrite (encrypted, txtLengthpadded, 1, encf);
-
-            free ((char *)encrypted);
-            free ((char *)toencrypt);
+        }
+        if (!any) {
+            QFile::remove(target);
+            return;
         }
     }
 
-    fflush(encf);
-    fclose (encf);
+    if (TdjEncryptedFile::write(m_crypto, target, Tdj2Notes, body, inivecflag)
+        == false)
+        crypt_error_notification ("Error in writing journal data.");
 }
 
 void MainWindow::read_appt_file (int inivecflag)
 {
-int i, k, row;
-QString *s;
+int i, row;
 
     //clear all appointments
     for (i = 1; i <= 31; i++) {
@@ -303,159 +189,98 @@ QString *s;
          appointment[i].total = 0;
     }
 
+    QString path = Appointmentsfilename;
     if (inivecflag == 1) {//pwd change in progress, filename comes from file list
-        fname.clear();
-        fname.append(Homepath);
-        fname.append("/");
-        fname.append(reencfileInfo.fileName());
-        encf = fopen (fname.toUtf8().data(), "r");
-    }
-    else {//normal data read in progress, filename is Apptfname
-        encf = fopen (Appointmentsfilename.toUtf8().data(), "r");
+        path = Homepath + "/" + reencfileInfo.fileName();
     }
 
-    if (encf == NULL)
+    TdjEncryptedFile store(m_crypto);
+    int r = store.open(path, m_crypto.readKey32(inivecflag));
+    if (r == TdjFieldEof)
+        return;//file does not exist: nothing to read
+    if (r != TdjFieldOk) {
+        crypt_error_notification ("Error in reading appointments data.");
         return;
+    }
+    TdjFieldSource &fs = store.source();
 
-    szt = fread (&iniVector, sizeof (char), 16, encf);
+    bool corrupt = false;
+    for (i = 1; i <= 31 && !corrupt; i++) {
+         for(row = 0; row < 48 && !corrupt; row++) {
+             QByteArray time, desc;
 
-    for (i = 1; i <= 31; i++) {
-         for(row = 0; row < 48; row++) {
-             //read the size of the time
-             szt = fread (&txtLength, sizeof (int), 1, encf);
-             set_decrypt_variables();
-             //read the encrypted time
-             szt = fread (todecrypt, txtLengthpadded, 1, encf);
-
-             k = aesdec ();
-             if (k == 1) {
-                 crypt_error_notification ("Error in decryption of appointments data.");
+             qint32 len;
+             int k = fs.readLen(len);
+             if (k == TdjFieldEof || k == TdjFieldCorrupt) {
+                 corrupt = true;
+                 break;
+             }
+             if (fs.readBody(len, time) == TdjFieldCorrupt) {
+                 corrupt = true;
+                 break;
              }
 
-             //assign the time to the appointment
-             s = new QString (decrypted);
-             appointment[i].apptime[row+1].append(s);
-             delete s;
-
-             //free the buffers
-             free_dec_strings ();
-
-             //read the size of the description
-             szt = fread (&txtLength, sizeof (int), 1, encf);
-             set_decrypt_variables();
-             //read the encrypted description
-             szt = fread (todecrypt, txtLengthpadded, 1, encf);
-
-             k = aesdec ();
-             if (k == 1) {
-                 crypt_error_notification ("Error in decryption of appointments data.");
+             k = fs.readLen(len);
+             if (k == TdjFieldEof || k == TdjFieldCorrupt) {
+                 corrupt = true;
+                 break;
+             }
+             if (fs.readBody(len, desc) == TdjFieldCorrupt) {
+                 corrupt = true;
+                 break;
              }
 
-             //assign the description to the appointment
-             s = new QString (decrypted);
-             appointment[i].apptdesc[row+1].append(s);
-             delete s;
-
-             //free the buffers
-             free_dec_strings ();
+             appointment[i].apptime[row+1] = QString::fromUtf8(time);
+             appointment[i].apptdesc[row+1] = QString::fromUtf8(desc);
 
              if (appointment[i].apptime[row+1].size() + appointment[i].apptdesc[row+1].size() > 0)
                  (appointment[i].total)++;
          }
     }
 
-    fclose (encf);
+    if (corrupt)
+        crypt_error_notification ("Error in reading appointments data.");
 }
 
 void MainWindow::write_appt_file (int inivecflag)
 {
-QByteArray text;
-int i, j = 0, row, len;
+QByteArray body;
+int i, row;
 
     for (i = 1; i <= 31; i++) {
         for (row = 0; row < 48; row++) {
-            j += appointment[i].apptdesc[row+1].size();
+            QByteArray time = appointment[i].apptime[row+1].toUtf8();
+            QByteArray desc = appointment[i].apptdesc[row+1].toUtf8();
+
+            tdj_append_field(body, time);
+            tdj_append_field(body, desc);
         }
     }
 
-    if (inivecflag == 1) {//pwd change in progress, filename comes from file list
-        fname.clear();
-        fname.append(Homepath);
-        fname.append("/");
-        fname.append(reencfileInfo.fileName());
-        encf = fopen (fname.toUtf8().data(), "w");
-        if (encf == NULL)
-            return;
-        fwrite (&newiniVector, sizeof (char), 16, encf);
-    }
-    else {//normal data write in progress, filename is Appointmentsfilename
-        if (j == 0) {//nothing to save
-            unlink (Appointmentsfilename.toUtf8().data());
-            return;
+    QString target = Appointmentsfilename;
+    if (inivecflag == 1)
+        target = Homepath + "/" + reencfileInfo.fileName() + ".new";
+    else {//normal save: a month with no appointments leaves no file behind
+        bool any = false;
+        for (i = 1; i <= 31 && !any; i++) {
+            for (row = 0; row < 48 && !any; row++)
+                any = !appointment[i].apptime[row+1].isEmpty()
+                   || !appointment[i].apptdesc[row+1].isEmpty();
         }
-        encf = fopen (Appointmentsfilename.toUtf8().data(), "w");
-        if (encf == NULL)
+        if (!any) {
+            QFile::remove(target);
             return;
-        fwrite (&iniVector, sizeof (char), 16, encf);
-    }
-
-    for (i = 1; i <= 31; i++) {
-        for (row = 0; row < 48; row++) {
-            //out << appointment[i].apptime[row+1] << "\n";
-            text = appointment[i].apptime[row+1].toUtf8();
-
-            //size excludes the end NULL
-            toencrypt = (char *) malloc (text.size() + 1);
-            strcpy(toencrypt, "");
-            //toencrypt contains the data to be encrypted
-            strcpy(toencrypt, text.data());
-
-            j = aesenc ();
-            if (j == 1) {
-                crypt_error_notification ("Error in encryption of appointments data.");
-            }
-
-            //save the size of the data
-            len = text.size();
-            fwrite (&len, sizeof (int), 1, encf);
-            //save the encrypted data
-            fwrite (encrypted, txtLengthpadded, 1, encf);
-
-            free ((char *)encrypted);
-            free ((char *)toencrypt);
-
-            //out << appointment[i].apptdesc[row+1] << "\n";
-            text = appointment[i].apptdesc[row+1].toUtf8();
-
-            //size excludes the end NULL
-            toencrypt = (char *) malloc (text.size() + 1);
-            strcpy(toencrypt, "");
-            //toencrypt contains the data to be encrypted
-            strcpy(toencrypt, text.data());
-
-            j = aesenc ();
-            if (j == 1) {
-                crypt_error_notification ("Error in encryption of appointments data.");
-            }
-
-            //save the size of the data
-            len = text.size();
-            fwrite (&len, sizeof (int), 1, encf);
-            //save the encrypted data
-            fwrite (encrypted, txtLengthpadded, 1, encf);
-
-            free ((char *)encrypted);
-            free ((char *)toencrypt);
         }
     }
 
-    fclose(encf);
+    if (TdjEncryptedFile::write(m_crypto, target, Tdj2Appointments, body,
+                                inivecflag) == false)
+        crypt_error_notification ("Error in writing appointments data.");
 }
 
 void MainWindow::read_daily_appt_file ()
 {
-int k, row;
-QString *s;
+int row;
 
     //clear all appointments
     for(row = 0; row < 48; row++) {
@@ -464,143 +289,99 @@ QString *s;
     }
     dailyappt.total = 0;
 
-    encf = fopen (DailyAppointmentsfilename.toUtf8().data(), "r");
-    if (encf == NULL)
+    TdjEncryptedFile store(m_crypto);
+    int r = store.open(DailyAppointmentsfilename, m_crypto.readKey32(0));
+    if (r == TdjFieldEof)
+        return;//file does not exist: nothing to read
+    if (r != TdjFieldOk) {
+        crypt_error_notification ("Error in reading daily appointments data.");
         return;
+    }
+    TdjFieldSource &fs = store.source();
 
-    szt = fread (&iniVector, sizeof (char), 16, encf);
+    bool corrupt = false;
+    for(row = 0; row < 48 && !corrupt; row++) {
+        QByteArray time, desc;
 
-    for(row = 0; row < 48; row++) {
-        //read the size of the time
-        szt = fread (&txtLength, sizeof (int), 1, encf);
-        set_decrypt_variables();
-        //read the encrypted time
-        szt = fread (todecrypt, txtLengthpadded, 1, encf);
-
-        k = aesdec ();
-        if (k == 1) {
-            crypt_error_notification ("Error in decryption of daily appointments data.");
+        qint32 len;
+        int k = fs.readLen(len);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
+        }
+        if (fs.readBody(len, time) == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
         }
 
-        //assign the time to the appointment
-        s = new QString (decrypted);
-        dailyappt.apptime[row+1].append(s);
-        delete s;
-
-        //free the buffers
-        free_dec_strings ();
-
-        //read the size of the description
-        szt = fread (&txtLength, sizeof (int), 1, encf);
-        set_decrypt_variables();
-        //read the encrypted description
-        szt = fread (todecrypt, txtLengthpadded, 1, encf);
-
-        k = aesdec ();
-        if (k == 1) {
-            crypt_error_notification ("Error in decryption of daily appointments data.");
+        k = fs.readLen(len);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
+        }
+        if (fs.readBody(len, desc) == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
         }
 
-        //assign the description to the appointment
-        s = new QString (decrypted);
-        dailyappt.apptdesc[row+1].append(s);
-        delete s;
-
-        //free the buffers
-        free_dec_strings ();
+        dailyappt.apptime[row+1] = QString::fromUtf8(time);
+        dailyappt.apptdesc[row+1] = QString::fromUtf8(desc);
 
         if (dailyappt.apptime[row+1].size() + dailyappt.apptdesc[row+1].size() > 0)
             (dailyappt.total)++;
     }
+
+    if (corrupt)
+        crypt_error_notification ("Error in reading daily appointments data.");
 }
 
 void MainWindow::write_daily_appt_file (int inivecflag)
 {
-QByteArray text;
-int j = 0, len, row;
+QByteArray body;
+int row;
 
     for (row = 0; row < 48; row++) {
-        j += dailyappt.apptdesc[row+1].size();
+        QByteArray time = dailyappt.apptime[row+1].toUtf8();
+        QByteArray desc = dailyappt.apptdesc[row+1].toUtf8();
+
+        tdj_append_field(body, time);
+        tdj_append_field(body, desc);
     }
 
-    if (j == 0) {//nothing to save
-        unlink (DailyAppointmentsfilename.toUtf8().data());
-        return;
-    }
-
-    encf = fopen (DailyAppointmentsfilename.toUtf8().data(), "w");
-    if (encf == NULL)
-        return;
-
-    if (inivecflag == 1) {//pwd change in progress
-        fwrite (&newiniVector, sizeof (char), 16, encf);
-    }
-    else {//normal data write in progress
-        fwrite (&iniVector, sizeof (char), 16, encf);
-    }
-
-    for (row = 0; row < 48; row++) {
-        text = dailyappt.apptime[row+1].toUtf8();
-
-        //size excludes the end NULL
-        toencrypt = (char *) malloc (text.size() + 1);
-        strcpy(toencrypt, "");
-        //toencrypt contains the data to be encrypted
-        strcpy(toencrypt, text.data());
-
-        j = aesenc ();
-        if (j == 1) {
-            crypt_error_notification ("Error in encryption of daily appointments data.");
+    QString target = DailyAppointmentsfilename;
+    if (inivecflag == 1)
+        target = Homepath + "/" + reencfileInfo.fileName() + ".new";
+    else {//normal save: no daily appointments leaves no file behind
+        bool any = false;
+        for (row = 0; row < 48 && !any; row++)
+            any = !dailyappt.apptime[row+1].isEmpty()
+               || !dailyappt.apptdesc[row+1].isEmpty();
+        if (!any) {
+            QFile::remove(target);
+            return;
         }
-
-        //save the size of the data
-        len = text.size();
-        fwrite (&len, sizeof (int), 1, encf);
-        //save the encrypted data
-        fwrite (encrypted, txtLengthpadded, 1, encf);
-
-        free ((char *)encrypted);
-        free ((char *)toencrypt);
-
-        text = dailyappt.apptdesc[row+1].toUtf8();
-
-        //size excludes the end NULL
-        toencrypt = (char *) malloc (text.size() + 1);
-        strcpy(toencrypt, "");
-        //toencrypt contains the data to be encrypted
-        strcpy(toencrypt, text.data());
-
-        j = aesenc ();
-        if (j == 1) {
-            crypt_error_notification ("Error in encryption of appointments data.");
-        }
-
-        //save the size of the data
-        len = text.size();
-        fwrite (&len, sizeof (int), 1, encf);
-        //save the encrypted data
-        fwrite (encrypted, txtLengthpadded, 1, encf);
-
-        free ((char *)encrypted);
-        free ((char *)toencrypt);
     }
 
-    fclose(encf);
+    if (TdjEncryptedFile::write(m_crypto, target, Tdj2DailyAppts, body,
+                                inivecflag) == false)
+        crypt_error_notification ("Error in writing daily appointments data.");
 }
 
 void MainWindow::read_ann_file ()
 {
-QString *s;
-int i, k;
+int i;
 
     max_anniversaries = 0;
 
-    encf = fopen (Anniversaryfilename.toUtf8().data(), "r");
-
-    if (encf == NULL)
+    TdjEncryptedFile store(m_crypto);
+    int r = store.open(Anniversaryfilename, m_crypto.readKey32(0));
+    if (r == TdjFieldEof)
+        return;//file does not exist: nothing to read
+    if (r != TdjFieldOk) {
+        crypt_error_notification ("Error in reading anniversary data.");
         return;
-
-    szt = fread (&iniVector, sizeof (char), 16, encf);
+    }
+    TdjFieldSource &fs = store.source();
 
     for (i = 1; i < 367; i++) {
         anniversary[i].date.clear();
@@ -608,313 +389,201 @@ int i, k;
         anniversary[i].description.clear();
     }
 
+    bool corrupt = false;
     //read the holidays
-    for (i = 1; i < 367; i++) {
-        //read the size of the date
-        szt = fread (&txtLength, sizeof (int), 1, encf);
-        set_decrypt_variables();
-        //read the encrypted date
-        szt = fread (todecrypt, txtLengthpadded, 1, encf);
+    for (i = 1; i < 367 && !corrupt; i++) {
+        QByteArray date, month, desc;
 
-        k = aesdec ();
-        if (k == 1) {
-            crypt_error_notification ("Error in decryption of anniversary data.");
+        qint32 len;
+        int k = fs.readLen(len);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
+        }
+        if (fs.readBody(len, date) == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
         }
 
-        //assign the date to the anniversary
-        s = new QString (decrypted);
-        anniversary[i].date.append(s);
-        delete s;
-
-        //free the buffers
-        free_dec_strings ();
-
-        //read the size of the month
-        szt = fread (&txtLength, sizeof (int), 1, encf);
-        set_decrypt_variables();
-        //read the encrypted month
-        szt = fread (todecrypt, txtLengthpadded, 1, encf);
-
-        k = aesdec ();
-        if (k == 1) {
-            crypt_error_notification ("Error in decryption of anniversary data.");
+        k = fs.readLen(len);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
+        }
+        if (fs.readBody(len, month) == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
         }
 
-        //assign the month to the anniversary
-        s = new QString (decrypted);
-        anniversary[i].month.append(s);
-        delete s;
-
-        //free the buffers
-        free_dec_strings ();
-
-        //read the size of the description
-        szt = fread (&txtLength, sizeof (int), 1, encf);
-        set_decrypt_variables();
-        //read the encrypted description
-        szt = fread (todecrypt, txtLengthpadded, 1, encf);
-
-        k = aesdec ();
-        if (k == 1) {
-            crypt_error_notification ("Error in decryption of anniversary data.");
+        k = fs.readLen(len);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
+        }
+        if (fs.readBody(len, desc) == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
         }
 
-        //assign the description to the anniversary
-        s = new QString (decrypted);
-        anniversary[i].description.append(s);
-        delete s;
-
-        //free the buffers
-        free_dec_strings ();
+        anniversary[i].date = QString::fromUtf8(date);
+        anniversary[i].month = QString::fromUtf8(month);
+        anniversary[i].description = QString::fromUtf8(desc);
 
         if (anniversary[i].description.size() > 0)
             max_anniversaries++;
     }
 
-    fclose(encf);
+    if (corrupt)
+        crypt_error_notification ("Error in reading anniversary data.");
 }
 
 void MainWindow::write_ann_file (int inivecflag)
 {
-QByteArray text;
-int i, j = 0, k, len;
+QByteArray body;
+int i;
 
     for (i = 1; i < 367; i++) {
-        j += anniversary[i].date.length();
+        QByteArray date = anniversary[i].date.toUtf8();
+        QByteArray month = anniversary[i].month.toUtf8();
+        QByteArray desc = anniversary[i].description.toUtf8();
+
+        tdj_append_field(body, date);
+        tdj_append_field(body, month);
+        tdj_append_field(body, desc);
     }
 
-    if (j == 0) {//nothing to save
-        unlink (Anniversaryfilename.toUtf8().data());
-        return;
-    }
+    QString target = Anniversaryfilename;
+    if (inivecflag == 1)
+        target = Homepath + "/" + reencfileInfo.fileName() + ".new";
 
-    encf = fopen (Anniversaryfilename.toUtf8().data(), "w");
-    if (encf == NULL)
-        return;
-
-    if (inivecflag == 1) {//pwd change in progress
-        fwrite (&newiniVector, sizeof (char), 16, encf);
-    }
-    else {//normal data wrute in progress
-        fwrite (&iniVector, sizeof (char), 16, encf);
-    }
-
-    //write each anniversary
-    for (i = 1; i < 367; i++) {
-
-        //date
-        text = anniversary[i].date.toUtf8();
-        //size excludes the end NULL
-        toencrypt = (char *) malloc (text.size() + 1);
-        strcpy(toencrypt, "");
-        //toencrypt contains the data to be encrypted
-        strcpy(toencrypt, text.data());
-
-        k = aesenc ();
-        if (k == 1) {
-            crypt_error_notification ("Error in encryption of anniversary data.");
-        }
-
-        //save the size of the data
-        len = text.size();
-        fwrite (&len, sizeof (int), 1, encf);
-        //save the encrypted data
-        fwrite (encrypted, txtLengthpadded, 1, encf);
-
-        free ((char *)encrypted);
-        free ((char *)toencrypt);
-
-        //month
-        text = anniversary[i].month.toUtf8();
-        //size excludes the end NULL
-        toencrypt = (char *) malloc (text.size() + 1);
-        strcpy(toencrypt, "");
-        //toencrypt contains the data to be encrypted
-        strcpy(toencrypt, text.data());
-
-        k = aesenc ();
-        if (k == 1) {
-            crypt_error_notification ("Error in encryption of anniversary data.");
-        }
-
-        //save the size of the data
-        len = text.size();
-        fwrite (&len, sizeof (int), 1, encf);
-        //save the encrypted data
-        fwrite (encrypted, txtLengthpadded, 1, encf);
-
-        free ((char *)encrypted);
-        free ((char *)toencrypt);
-
-        //description
-        text = anniversary[i].description.toUtf8();
-        //size excludes the end NULL
-        toencrypt = (char *) malloc (text.size() + 1);
-        strcpy(toencrypt, "");
-        //toencrypt contains the data to be encrypted
-        strcpy(toencrypt, text.data());
-
-        k = aesenc ();
-        if (k == 1) {
-            crypt_error_notification ("Error in encryption of anniversary data.");
-        }
-
-        //save the size of the data
-        len = text.size();
-        fwrite (&len, sizeof (int), 1, encf);
-        //save the encrypted data
-        fwrite (encrypted, txtLengthpadded, 1, encf);
-
-        free ((char *)encrypted);
-        free ((char *)toencrypt);
-    }
-
-    fclose(encf);
+    if (TdjEncryptedFile::write(m_crypto, target, Tdj2Anns, body,
+                                inivecflag) == false)
+        crypt_error_notification ("Error in writing anniversary data.");
 }
 
 void MainWindow::read_contacts ()
 {
 QTreeWidgetItem *itcat, *itcon;
-QString *s1, s;
+QString s;
 QTextDocument doc;
-int i, j, k, contact_count, toplevelcount;
+int i, j, contact_count, toplevelcount;
 
     contree->clear();
 
-    encf = fopen (Contactfilename.toUtf8().data(), "r");
-    if (encf == NULL)
+    TdjEncryptedFile store(m_crypto);
+    int r = store.open(Contactfilename, m_crypto.readKey32(0));
+    if (r == TdjFieldEof)
+        return;//file does not exist: nothing to read
+    if (r != TdjFieldOk) {
+        crypt_error_notification ("Error in reading contacts data.");
         return;
+    }
+    TdjFieldSource &fs = store.source();
 
-    szt = fread (&iniVector, sizeof (char), 16, encf);
-    //number of groups
-    szt = fread (&toplevelcount, sizeof (int), 1, encf);
+    //number of groups (a plain int in both formats)
+    if (fs.readRaw(reinterpret_cast<char *>(&toplevelcount), 4) != 1) {
+        crypt_error_notification ("Error in reading contacts data.");
+        return;
+    }
+    if (toplevelcount < 0 || toplevelcount > kMaxFieldBytes) {
+        crypt_error_notification ("Error in reading contacts data.");
+        return;
+    }
 
+    bool corrupt = false;
     //loop over groups
-    for (i = 0; i < toplevelcount; i++) {
+    for (i = 0; i < toplevelcount && !corrupt; i++) {
         itcat = new QTreeWidgetItem (contree);
         contree->addTopLevelItem(itcat);
 
-        //read the size of the name
-        szt = fread (&txtLength, sizeof (int), 1, encf);
-        set_decrypt_variables();
-        //read the encrypted group name
-        szt = fread (todecrypt, txtLengthpadded, 1, encf);
+        QByteArray name, gdesc;
 
-        k = aesdec ();
-        if (k == 1) {
-            crypt_error_notification ("Error in decryption of contacts data.");
+        qint32 len;
+        int k = fs.readLen(len);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
+        }
+        if (fs.readBody(len, name) == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
         }
 
-        //assign the group name to the tree
-        s1 = new QString (decrypted);
-        doc.setHtml(*s1);
+        k = fs.readLen(len);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
+        }
+        if (fs.readBody(len, gdesc) == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
+        }
+
+        //assign the group name to the tree, stripped of HTML
+        doc.setHtml(QString::fromUtf8(name));
         s = doc.toPlainText();
-
         itcat->setText(0, s);
-        delete s1;
+        itcat->setText(1, QString::fromUtf8(gdesc));
 
-        //free the buffers
-        free_dec_strings ();
-
-        //read the size of the group description
-        szt = fread (&txtLength, sizeof (int), 1, encf);
-        set_decrypt_variables();
-        //read the encrypted group description
-        szt = fread (todecrypt, txtLengthpadded, 1, encf);
-
-        k = aesdec ();
-        if (k == 1) {
-            crypt_error_notification ("Error in decryption of contacts data.");
+        if (fs.readRaw(reinterpret_cast<char *>(&contact_count), 4) != 1) {
+            corrupt = true;
+            break;
         }
-
-        //assign the group description to the tree
-        s1 = new QString (decrypted);
-        itcat->setText(1, *s1);
-        delete s1;
-
-        //free the buffers
-        free_dec_strings ();
-
-        szt = fread (&contact_count, sizeof (int), 1, encf);
+        if (contact_count < 0 || contact_count > kMaxFieldBytes){
+            corrupt = true;
+            break;
+        }
 
         //loop over contacts for this group
-        for (j = 0; j < contact_count; j++){
+        for (j = 0; j < contact_count && !corrupt; j++){
             itcon = new QTreeWidgetItem ();
 
-            //read the size of the name
-            szt = fread (&txtLength, sizeof (int), 1, encf);
-            set_decrypt_variables();
-            //read the encrypted name of this contact
-            szt = fread (todecrypt, txtLengthpadded, 1, encf);
+            QByteArray cname, cdata;
 
-            k = aesdec ();
-            if (k == 1) {
-                crypt_error_notification("Error in decryption of contacts data.");
+            k = fs.readLen(len);
+            if (k == TdjFieldEof || k == TdjFieldCorrupt) {
+                corrupt = true;
+                break;
+            }
+            if (fs.readBody(len, cname) == TdjFieldCorrupt) {
+                corrupt = true;
+                break;
             }
 
-            //assign the contact name to the tree
-            s1 = new QString (decrypted);
-            itcon->setText(0, *s1);
-            delete s1;
-
-            //free the buffers
-            free_dec_strings ();
-
-            //read the size of the contact data
-            szt = fread (&txtLength, sizeof (int), 1, encf);
-            set_decrypt_variables();
-            //read the encrypted contact data
-            szt = fread (todecrypt, txtLengthpadded, 1, encf);
-
-            k = aesdec ();
-            if (k == 1) {
-                crypt_error_notification("Error in decryption of contacts data.");
+            k = fs.readLen(len);
+            if (k == TdjFieldEof || k == TdjFieldCorrupt) {
+                corrupt = true;
+                break;
+            }
+            if (fs.readBody(len, cdata) == TdjFieldCorrupt) {
+                corrupt = true;
+                break;
             }
 
-            //assign the contact data to the tree
-            s1 = new QString (decrypted);
-            itcon->setText(1, *s1);
-            delete s1;
-
-            //free the buffers
-            free_dec_strings ();
+            itcon->setText(0, QString::fromUtf8(cname));
+            itcon->setText(1, QString::fromUtf8(cdata));
 
             itcat->addChild(itcon);
         }
     }
 
-    fclose(encf);
+    if (corrupt)
+        crypt_error_notification ("Error in reading contacts data.");
 
-    contreeempty = false;
+    if (corrupt == false && toplevelcount > 0)
+        contreeempty = false;
 }
 
 void MainWindow::write_contacts (int inivecflag)
 {
 QTreeWidgetItem *itcat, *itcon;
-QByteArray text;
-int i, j, k, len, toplevelcount, contact_count;
+QByteArray body;
+int i, j, toplevelcount, contact_count;
 
     //number of contact groups
     toplevelcount = contree->topLevelItemCount();
 
-    if (toplevelcount == 0) {//nothing to save
-        unlink (Contactfilename.toUtf8().data());
-        return;
-    }
-
-    encf = fopen (Contactfilename.toUtf8().data(), "w");
-    if (encf == NULL)
-        return;
-
-    if (inivecflag == 1) {//pwd change in progress
-        fwrite (&newiniVector, sizeof (char), 16, encf);
-    }
-    else {//normal data write in progress
-        fwrite (&iniVector, sizeof (char), 16, encf);
-    }
-
-    //number of groups
-    fwrite (&toplevelcount, sizeof (int), 1, encf);
+    body.append(reinterpret_cast<const char *>(&toplevelcount), 4);
 
     //loop over groups
     for (i = 0; i < toplevelcount; i++){
@@ -922,285 +591,126 @@ int i, j, k, len, toplevelcount, contact_count;
         //number of contacts in this group
         contact_count = itcat->childCount();
 
-        //name of group
-        text = (itcat->text(0)).toUtf8();
-        //size excludes the end NULL
-        toencrypt = (char *) malloc (text.size() + 1);
-        strcpy(toencrypt, "");
-        //toencrypt contains the data to be encrypted
-        strcpy(toencrypt, text.data());
+        QByteArray name = itcat->text(0).toUtf8();
+        QByteArray gdesc = itcat->text(1).toUtf8();
 
-        k = aesenc ();
-        if (k == 1) {
-            crypt_error_notification ("Error in encryption of contacts data.");
-        }
+        tdj_append_field(body, name);
+        tdj_append_field(body, gdesc);
 
-        //save the size of the data
-        len = text.size();
-        fwrite (&len, sizeof (int), 1, encf);
-        //save the encrypted data
-        fwrite (encrypted, txtLengthpadded, 1, encf);
+        body.append(reinterpret_cast<const char *>(&contact_count), 4);
 
-        free ((char *)encrypted);
-        free ((char *)toencrypt);
-
-        //description of group
-        text = (itcat->text(1)).toUtf8();
-        //size excludes the end NULL
-        toencrypt = (char *) malloc (text.size() + 1);
-        strcpy(toencrypt, "");
-        //toencrypt contains the data to be encrypted
-        strcpy(toencrypt, text.data());
-
-        k = aesenc ();
-        if (k == 1) {
-            crypt_error_notification ("Error in encryption of contacts data.");
-        }
-
-        //save the size of the data
-        len = text.size();
-        fwrite (&len, sizeof (int), 1, encf);
-        //save the encrypted data
-        fwrite (encrypted, txtLengthpadded, 1, encf);
-
-        free ((char *)encrypted);
-        free ((char *)toencrypt);
-
-        //no. of contacts in this group
-        fwrite (&contact_count, sizeof (int), 1, encf);
-
-        //loop over contacts of this group
         for (j = 0; j < contact_count; j++){
             itcon = itcat->child(j);
 
-            //this is the name of the contact
-            text = (itcon->text(0)).toUtf8();
+            QByteArray cname = itcon->text(0).toUtf8();
+            QByteArray cdata = itcon->text(1).toUtf8();
 
-            //size excludes the end NULL
-            toencrypt = (char *) malloc (text.size() + 1);
-            strcpy(toencrypt, "");
-            //toencrypt contains the data to be encrypted
-            strcpy(toencrypt, text.data());
-
-            k = aesenc ();
-            if (k == 1) {
-                crypt_error_notification ("Error in encryption of contacts data.");
-            }
-
-            //save the size of the data
-            len = text.size();
-            fwrite (&len, sizeof (int), 1, encf);
-            //save the encrypted data
-            fwrite (encrypted, txtLengthpadded, 1, encf);
-
-            free ((char *)encrypted);
-            free ((char *)toencrypt);
-
-            //this is the data for this contact
-            text = itcon->text(1).toUtf8();
-            //size excludes the end NULL
-            toencrypt = (char *) malloc (text.size() + 1);
-            strcpy(toencrypt, "");
-            //toencrypt contains the data to be encrypted
-            strcpy(toencrypt, text.data());
-
-            k = aesenc ();
-            if (k == 1) {
-                crypt_error_notification ("Error in encryption of contacts data.");
-            }
-
-            //save the size of the data
-            len = text.size();
-            fwrite (&len, sizeof (int), 1, encf);
-            //save the encrypted data
-            fwrite (encrypted, txtLengthpadded, 1, encf);
-
-            free ((char *)encrypted);
-            free ((char *)toencrypt);
+            tdj_append_field(body, cname);
+            tdj_append_field(body, cdata);
         }
     }
 
-    fclose(encf);
+    QString target = Contactfilename;
+    if (inivecflag == 1)
+        target = Homepath + "/" + reencfileInfo.fileName() + ".new";
+
+    if (TdjEncryptedFile::write(m_crypto, target, Tdj2Contacts, body,
+                                inivecflag) == false)
+        crypt_error_notification ("Error in writing contacts data.");
 }
 
 void MainWindow::read_lists()
 {
 QTreeWidgetItem *it;
-QString *s;
-int i, k, toplevelcount;
+int i, toplevelcount;
 
-    encf = fopen (Listfilename.toUtf8().data(), "r");
-    if (encf == NULL)
+    TdjEncryptedFile store(m_crypto);
+    int r = store.open(Listfilename, m_crypto.readKey32(0));
+    if (r == TdjFieldEof)
+        return;//file does not exist: nothing to read
+    if (r != TdjFieldOk) {
+        crypt_error_notification ("Error in reading notes data.");
         return;
+    }
+    TdjFieldSource &fs = store.source();
 
-    szt = fread (&iniVector, sizeof (char), 16, encf);
-    //number of lists
-    szt = fread (&toplevelcount, sizeof (int), 1, encf);
+    //number of lists (a plain int in both formats)
+    if (fs.readRaw(reinterpret_cast<char *>(&toplevelcount), 4) != 1) {
+        crypt_error_notification ("Error in reading notes data.");
+        return;
+    }
+    if (toplevelcount < 0 || toplevelcount > kMaxFieldBytes) {
+        crypt_error_notification ("Error in reading notes data.");
+        return;
+    }
 
-    //loop over list
-    for (i = 0; i < toplevelcount; i++) {
+    bool corrupt = false;
+    //loop over lists
+    for (i = 0; i < toplevelcount && !corrupt; i++) {
         it = new QTreeWidgetItem (listree);
         listree->addTopLevelItem(it);
 
-        //read the size of the list name
-        szt = fread (&txtLength, sizeof (int), 1, encf);
-        set_decrypt_variables();
-        //read the encrypted list name
-        szt = fread (todecrypt, txtLengthpadded, 1, encf);
+        QByteArray name, data;
 
-        k = aesdec ();
-        if (k == 1) {
-            crypt_error_notification ("Error in decryption of lists data.");
+        qint32 len;
+        int k = fs.readLen(len);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
+        }
+        if (fs.readBody(len, name) == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
         }
 
-        //assign the list name to the tree
-        s = new QString (decrypted);
-        it->setText(0, *s);
-        delete s;
-
-        //free the buffers
-        free_dec_strings ();
-
-        //read the size of the list data
-        szt = fread (&txtLength, sizeof (int), 1, encf);
-        set_decrypt_variables();
-        //read the encrypted list data
-        szt = fread (todecrypt, txtLengthpadded, 1, encf);
-
-        k = aesdec ();
-        if (k == 1) {
-            crypt_error_notification ("Error in decryption of lists data.");
+        k = fs.readLen(len);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
+        }
+        if (fs.readBody(len, data) == TdjFieldCorrupt) {
+            corrupt = true;
+            break;
         }
 
-        //assign list data to tree
-        s = new QString (decrypted);
-        it->setText(1, *s);
-        delete s;
-
-        //free the buffers
-        free_dec_strings ();
+        it->setText(0, QString::fromUtf8(name));
+        it->setText(1, QString::fromUtf8(data));
     }
 
-    fclose(encf);
+    if (corrupt)
+        crypt_error_notification ("Error in reading notes data.");
 
-    listreeempty = false;
+    if (corrupt == false && toplevelcount > 0)
+        listreeempty = false;
 }
 
 void MainWindow::write_lists(int inivecflag)
 {
-QByteArray text;
 QTreeWidgetItem *it;
-int i, j, len, toplevelcount;
-
-    //number of categoriesqbytearray
-    toplevelcount = listree->topLevelItemCount();
-
-    if (toplevelcount == 0) {//nothing to save
-        unlink (Listfilename.toUtf8().data());
-        return;
-    }
-
-    encf = fopen (Listfilename.toUtf8().data(), "w");
-    if (encf == NULL)
-        return;
-
-    if (inivecflag == 1) {//pwd change in progress
-        fwrite (&newiniVector, sizeof (char), 16, encf);
-    }
-    else {//normal data write in progress
-        fwrite (&iniVector, sizeof (char), 16, encf);
-    }
+QByteArray body;
+int i, toplevelcount;
 
     //number of lists
-    fwrite (&toplevelcount, sizeof (int), 1, encf);
+    toplevelcount = listree->topLevelItemCount();
+
+    body.append(reinterpret_cast<const char *>(&toplevelcount), 4);
 
     //loop over lists
     for (i = 0; i < toplevelcount; i++) {
         it = listree->topLevelItem(i);
 
-        //this is the name of the list
-        text = (it->text(0)).toUtf8();
+        QByteArray name = it->text(0).toUtf8();
+        QByteArray data = it->text(1).toUtf8();
 
-        //size excludes the end NULL
-        toencrypt = (char *) malloc (text.size() + 1);
-        strcpy(toencrypt, "");
-        //toencrypt contains the data to be encrypted
-        strcpy(toencrypt, text.data());
-
-        j = aesenc ();
-        if (j == 1) {
-            crypt_error_notification ("Error in encryption of lists data.");
-        }
-
-        //save the size of the data
-        len = text.size();
-        fwrite (&len, sizeof (int), 1, encf);
-        //save the encrypted data
-        fwrite (encrypted, txtLengthpadded, 1, encf);
-
-        free ((char *)encrypted);
-        free ((char *)toencrypt);
-
-        //this is the data in this list
-        text = it->text(1).toUtf8().data();
-        //size excludes the end NULL
-        toencrypt = (char *) malloc (text.size() + 1);
-        strcpy(toencrypt, "");
-        //toencrypt contains the data to be encrypted
-        strcpy(toencrypt, text.data());
-
-        j = aesenc ();
-        if (j == 1) {
-            crypt_error_notification ("Error in encryption of lists data.");
-        }
-
-        //save the size of the data
-        len = text.size();
-        fwrite (&len, sizeof (int), 1, encf);
-        //save the encrypted data
-        fwrite (encrypted, txtLengthpadded, 1, encf);
-
-        free ((char *)encrypted);
-        free ((char *)toencrypt);
-
+        tdj_append_field(body, name);
+        tdj_append_field(body, data);
     }
 
-    fclose(encf);
-}
+    QString target = Listfilename;
+    if (inivecflag == 1)
+        target = Homepath + "/" + reencfileInfo.fileName() + ".new";
 
-void set_decrypt_variables(void)
-{
-    //tdremainder which exceeds multiple of blkLength
-    tdremainder = txtLength % blkLength;
-    //no of characters to pad
-    padding = blkLength - tdremainder - 1;
-    //length to read after padding
-    txtLengthpadded = txtLength + padding + 1;
-
-    //allocate memory for buffer to hold data which is to be decrypted
-    todecrypt = (char *) malloc(txtLengthpadded);
-    decrypted = (char *) malloc(txtLengthpadded);
-
-    strcpy (todecrypt, "");
-    strcpy (decrypted, "");
-}
-
-void crypt_error_notification (const char *errstr)
-{
-QString s;
-
-    s.append (errstr);
-
-    msgBox = new QMessageBox ();
-    msgBox->setText (s);
-    msgBox->exec();
-    delete msgBox;
-}
-
-void free_dec_strings (void)
-{
-    free ((char *)todecrypt);
-    free ((char *)decrypted);
-
-    tdremainder = txtLengthpadded = txtLength = padding = 0;
+    if (TdjEncryptedFile::write(m_crypto, target, Tdj2Lists, body,
+                                inivecflag) == false)
+        crypt_error_notification ("Error in writing notes data.");
 }

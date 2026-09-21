@@ -16,7 +16,7 @@ email                : letapk@gmail.com
 
 */
 
-//Last modified 19 June 2022
+//Last modified 19 Sep 2026
 
 #include "tdj.h"
 
@@ -68,58 +68,32 @@ QString MainWindow::get_month_name (int mnth)
     return QString ("");
 }
 
-//int MainWindow::get_month_int (QString s)
 int get_month_int (QString s)
 {
-int x = 0;
+    //new data stores a canonical month number ("1".."12") so sorting and
+    //colouring never depend on the display locale. Legacy files store the
+    //name exactly as it was picked in the combo box (populated with translated
+    //names), so fall back to matching the translated names for both UI
+    //contexts that emit them, then the English names.
+    bool numok = false;
+    int num = s.toInt(&numok);
+    if (numok && num >= 1 && num <= 12)
+        return num;
 
-    x = s.compare(("January"), Qt::CaseInsensitive);
-    if (x == 0)
-        return 1;
+    static const char *names[13] = {
+        0, "January", "February", "March", "April", "May", "June", "July",
+        "August", "September", "October", "November", "December"
+    };
 
-    x = s.compare(("February"), Qt::CaseInsensitive);
-    if (x == 0)
-        return 2;
-
-    x = s.compare(("March"), Qt::CaseInsensitive);
-    if (x == 0)
-        return 3;
-
-    x = s.compare(("April"), Qt::CaseInsensitive);
-    if (x == 0)
-        return 4;
-
-    x = s.compare(("May"), Qt::CaseInsensitive);
-    if (x == 0)
-        return 5;
-
-    x = s.compare(("June"), Qt::CaseInsensitive);
-    if (x == 0)
-        return 6;
-
-    x = s.compare(("July"), Qt::CaseInsensitive);
-    if (x == 0)
-        return 7;
-
-    x = s.compare(("August"), Qt::CaseInsensitive);
-    if (x == 0)
-        return 8;
-
-    x = s.compare(("September"), Qt::CaseInsensitive);
-    if (x == 0)
-        return 9;
-
-    x = s.compare(("October"), Qt::CaseInsensitive);
-    if (x == 0)
-        return 10;
-
-    x = s.compare(("November"), Qt::CaseInsensitive);
-    if (x == 0)
-        return 11;
-
-    x = s.compare(("December"), Qt::CaseInsensitive);
-    if (x == 0)
-        return 12;
+    for (int i = 1; i <= 12; i++) {
+        const char *n = names[i];
+        if (s.compare(QCoreApplication::translate("ComboBoxItemDelegate", n), Qt::CaseInsensitive) == 0)
+            return i;
+        if (s.compare(QCoreApplication::translate("MainWindow", n), Qt::CaseInsensitive) == 0)
+            return i;
+        if (s.compare(QLatin1String(n), Qt::CaseInsensitive) == 0)
+            return i;
+    }
 
     return 0;
 }
@@ -127,27 +101,27 @@ int x = 0;
 void MainWindow::format_anniversaries ()
 //color the dates with anniversaries yellow
 {
-int days, i, j;
-QDate *date, *date1;
+int i, j;
+QDate *date;
 QTextCharFormat f1;
 
     f1 = calendar->weekdayTextFormat(Qt::Monday);
     f1.setBackground(Qt::yellow);
 
-    date1 = new QDate (calendar->yearShown(), calendar->monthShown(), 1);
-    days = date1->daysInYear();
-
-    for (i = 1; i <= days; i++){
+    //loop over all 366 table rows, not just over the days of a (possibly
+    //non-leap) year, so that the 29 February entry is never dropped
+    for (i = 1; i < 367; i++){
         if (anniversary[i].description.length() != 0) {
             j = get_month_int (anniversary[i].month);
-            date = new QDate (calendar->yearShown(), j, anniversary[i].date.toInt());
-            if ((j - month) == 0) {
-                calendar->setDateTextFormat(*date, f1);
+            if (j >= 1 && j <= 12) {
+                date = new QDate (calendar->yearShown(), j, anniversary[i].date.toInt());
+                if (date->isValid() && (j - month) == 0) {
+                    calendar->setDateTextFormat(*date, f1);
+                }
+                delete date;
             }
-            delete date;
         }
     }
-    delete date1;
 }
 
 void MainWindow::format_appointments ()
@@ -183,8 +157,6 @@ void MainWindow::format_notes()
 int days, i;
 QDate *date, *date1;
 QTextCharFormat f, f1;
-QTextDocument *doc;
-QString s;
 
     f = f1 = calendar->weekdayTextFormat(Qt::Monday);
     f.setBackground(Qt::white);
@@ -196,13 +168,9 @@ QString s;
     for (i = 1; i <= days; i++) {//loop over the dates of this month
         date = new QDate (calendar->yearShown(), calendar->monthShown(), i);
 
-        doc = new QTextDocument ();
-        doc->setHtml(note[i].data);
-        s = doc->toPlainText();
-        delete doc;
-
-        if (s.isEmpty() == false){//some note exists, color it lightgray
-        //if ((note[i].data.isEmpty()) == false){//some note exists, color it lightgray
+        //uses the cached hasText flag instead of building a QTextDocument for
+        //every day of the month on each keystroke
+        if (note[i].hasText == true){//some note exists, color it lightgray
             calendar->setDateTextFormat(*date, f1);
         }
         else {//default background is white

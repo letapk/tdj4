@@ -16,7 +16,7 @@ email                : letapk@gmail.com
 
 */
 
-//Last modified 19 June 2022
+//Last modified 19 Sep 2026
 
 #include "tdj.h"
 
@@ -94,7 +94,7 @@ int row, i, j;
     row = 0;
     for (i = 1; i <= 48; i++) {
         //check the size of the data
-        j = approw[i].col0.size() + approw[i].col0.size();
+        j = approw[i].col0.size() + approw[i].col1.size();
         if (j > 0) {//something there, so copy it to the table item
             appcol0[row].setText (approw[i].col0);
             appcol1[row].setText (approw[i].col1);
@@ -257,7 +257,10 @@ int i;
 
     i = s.toInt(&ok2, 10);
     if (ok2 == true) {//text is a number
-        if (i >= 0 && i <=2400)//valid time
+        //a time is written as HHMM, e.g. 0930, 1300, 2400
+        //hours must be 0..23 (24:00 = 2400 is accepted as end-of-day),
+        //minutes must be 0..59 - e.g. 1260 is rejected.
+        if (i >= 0 && i <= 2400 && (i % 100) <= 59)
             *ok = true;
         else//invalid time
             *ok = false;
@@ -269,26 +272,45 @@ int i;
 
 void MainWindow::set_next_appointment_timer ()
 {
+//schedule the alarm for exactly 5 minutes before an upcoming appointment.
+//the old code computed the error as 40 hours times the number of hours
+//crossed, so a 13:00 appointment checked at 12:59 reported 41 minutes to
+//go and a 13:00 appointment checked at 12:30 reported 70 minutes, causing
+//the "5 minutes before" alarm to fire an hour late (and often to be missed
+//altogether). All intervals are now computed in real minutes.
 QTime now;
-int mininterval = 2400, interval = 0;
+int apptMin, delta;
+int best = -1;
 int row;
-bool setalarm = false;
 
     now = QTime::currentTime();
 
     for (row = 0; row < 48; row++) {
-        interval = appt_time_array[row] - (now.hour()*100+now.minute());//interval to this appt
-        if (interval > 5) {//time is in the future, and greater than 5 min
-            //find the least interval
-            mininterval = (mininterval < interval) ? mininterval : interval;
-            setalarm = true;
-        }
+        int t = appt_time_array[row];
+        if (t == 0)//blank row
+            continue;
+
+        const int hh = t / 100, mm = t % 100;
+        if (mm > 59)
+            continue;
+        if (hh == 24 && mm == 0)//24:00 means the end of the day
+            apptMin = 24 * 60;
+        else if (hh > 23)
+            continue;
+        else
+            apptMin = hh * 60 + mm;
+        delta = apptMin - (now.hour() * 60 + now.minute());
+        if (delta <= 5)//appointment passed, is now, or is within the alarm lead
+            continue;
+
+        //find the least interval
+        if (best < 0 || delta < best)
+            best = delta;
     }
 
-    if (setalarm == true) {
-        mininterval -= 5;//less 5 min from least interval
-        //issue timer to call alarm function
-        QTimer::singleShot(mininterval*60*1000, this, SLOT(issue_appt_alarm()));
+    if (best > 0) {
+        //alarm 5 minutes before the nearest appointment
+        QTimer::singleShot((best - 5) * 60 * 1000, this, &MainWindow::issue_appt_alarm);
     }
 }
 

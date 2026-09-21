@@ -16,7 +16,7 @@ email                : letapk@gmail.com
 
 */
 
-//Last modified 19 June 2022
+//Last modified 19 Sep 2026
 
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
@@ -24,7 +24,6 @@ email                : letapk@gmail.com
 #include <stdio.h>
 #include <string.h>
 
-#include <QWidget>
 #include <QApplication>
 #include <QMainWindow>
 #include <QMenuBar>
@@ -49,17 +48,25 @@ email                : letapk@gmail.com
 #include <QMessageBox>
 #include <QStyledItemDelegate>
 #include <QComboBox>
+#include <QFrame>
+#include <QMouseEvent>
 #include <QDir>
-#include <QString>
 #include <QStringList>
 #include <QTimer>
 #include <QColorDialog>
 #include <QColor>
 #include <QTextCursor>
+#include <QFile>
 #include <QToolBar>
 #include <QTextCharFormat>
 #include <QFontComboBox>
 #include <QTranslator>
+#include <QButtonGroup>
+#include <QActionGroup>
+
+//storage and crypto layer: field codec, TDJ2 container, key/salt ownership
+//(CryptoManager) and the store file facade (TdjEncryptedFile). Qt-Core-only.
+#include "tdjstore.h"
 
 namespace Ui {
 class MainWindow;
@@ -69,10 +76,12 @@ class MainWindow;
 class Note
 {
 public:
-    //length of the text stored in the note
-    //length does not include the NULL char at the end
-    int length;
     QString data;
+    //cached flag: has the note any plain text at all ?
+    //this is maintained by save_note() and read_journal_file() so that the
+    //calendar formatting code does not have to build QTextDocuments on every
+    //keystroke. It mirrors the legacy "length > 0 after stripping HTML" test.
+    bool hasText;
 };
 
 //appointments array for the month on display, begins from 1
@@ -149,6 +158,14 @@ class MainWindow : public QMainWindow
     QTextEdit *noteditor, *contacteditor, *listeditor;
     QTableWidget *apptable, *anntable;
 
+    //draggable handle between the left panel (calendar/trees) and the right
+    //panel (toolbar/tabs); leftwidth is the current width of the left panel
+    QFrame *divider;
+    int leftwidth;
+    bool divider_dragging;
+    int divider_drag_x;
+    int divider_drag_left;
+
     //text in editor
     QString note_to_show, list_to_show;
 
@@ -171,7 +188,8 @@ class MainWindow : public QMainWindow
     QTextCursor srchcursor;
 
     //preferences
-    QGroupBox *weekbox, *tabbox;
+    QGroupBox *tabbox;
+    QGroupBox *weekbox;
     QRadioButton *sun, *mon;
 
     QCheckBox *gridbox, *weeknumbox, *fortunebox;
@@ -183,17 +201,22 @@ class MainWindow : public QMainWindow
 
     QPushButton *fontbut;
     QPushButton *headercolbut;
+    QPushButton *datadirbut;
     QFont curfont;
 
     QLabel *statustext;
+    QLabel *datelabel;//persistent display of the selected date (bottom right)
 
     //password
-    QString password, phrase_to_encode;
+    QString password;
     QString old_password, new_password;
 
+    //owns every key, salt and IV used by the store layer (no file globals)
+    CryptoManager m_crypto;
+
     QDialog *Chpwdialog, *Cnfdialog;
-    QLabel *lbl1, *lbl2, *lbl3, *lbl4;
-    QLineEdit *ledt1, *ledt2, *ledt3, *ledt4;
+    QLabel *lbl1, *lbl2, *lbl4;
+    QLineEdit *ledt1, *ledt2, *ledt4;
     QPushButton *okbut, *cnclbut;
     QPushButton *ok2but, *cncl2but;
 
@@ -210,7 +233,18 @@ class MainWindow : public QMainWindow
     QString Gnugplfilename;
     QString Helpfilename;
 
+    //dialog to change the default data directory
+    QDialog *Datadirdialog;
+    //data subdirectory for this session
+    QString Datadirectory;
+
     void resizeEvent(QResizeEvent *);
+    bool eventFilter(QObject *, QEvent *) override;
+    //(re)position the left and right panels from leftwidth and the window size
+    void layout_panels();
+    //push a font onto the calendar and its internal navigation widgets: with
+    //the compact stylesheet applied they ignore application font changes
+    void apply_font_to_calendar(const QFont &);
 
     Q_OBJECT
 
@@ -265,11 +299,8 @@ public slots:
     void shownote ();
     void save_note ();
 
-    void read_journal_file (int inivecflag);
+    void read_journal_file (int inivecflag, const QString &pathOverride = QString());
     void write_journal_file (int inivecflag);
-
-    //void cl_read_journal_file ();
-    //void cl_write_journal_file ();
 
     //appointments table
     void fill_appointment_items ();
@@ -285,12 +316,6 @@ public slots:
     void read_daily_appt_file ();
     void write_daily_appt_file (int inivecflag);
 
-    //void cl_read_appt_file (void);
-    //void cl_write_appt_file (void);
-
-    //void cl_read_daily_appt_file (void);
-    //void cl_write_daily_appt_file (void);
-
     void issue_appt_alarm();
     void set_next_appointment_timer ();
     void set_appt_time_array();
@@ -305,9 +330,6 @@ public slots:
     void read_ann_file ();
     void write_ann_file (int inivecflag);
 
-    //void cl_read_ann_file (void);
-    //void cl_write_ann_file (void);
-
     //contacts
     void show_contact();
     void save_contact ();
@@ -317,9 +339,6 @@ public slots:
 
     void read_contacts ();
     void write_contacts (int inivecflag);
-
-    //void cl_write_contacts ();
-    //void cl_read_contacts ();
 
     void add_category ();
     void add_contact ();
@@ -337,20 +356,17 @@ public slots:
     void read_lists ();
     void write_lists (int inivecflag);
 
-    //void cl_read_lists ();
-    //void cl_write_lists ();
-
     //preferences
     void create_prefs_weekgrp_box ();
     void weekstartsun (bool);
     void weekstartmon (bool);
-    void set_cal_grid(int);
-    void set_cal_week_num(int);
+    void set_cal_grid(Qt::CheckState);
+    void set_cal_week_num(Qt::CheckState);
 
     void create_prefs_tabgrp_box ();
     void tab_start(bool);
 
-    void fortunestate (int);
+    void fortunestate (Qt::CheckState);
     void select_font();
 
     //search
@@ -365,13 +381,14 @@ public slots:
     //preferences
     void writeprefs();
     void readprefs();
+    void change_directory();
 
     //password
-    void re_encrypt_notes_appt_data ();
     void check_password();
     void cncl_pwd_change();
-    void make_password_test_file (QString phrase);
     void test_password ();
+    void reencrypt_all_stores ();
+    void reload_current_month ();
 
     void confirm_phrase();
     void reject_phrase();
@@ -386,5 +403,16 @@ public slots:
     void closeEvent(QCloseEvent *event);
 
 };
+
+// ---------------------------------------------------------------------------
+// Storage and crypto layer (Phase 3, v4-0.4).
+//
+// The encrypted-field codec, the TDJ2 container, the key/salt/IV ownership
+// (CryptoManager) and the store file facade (TdjEncryptedFile) live in
+// tdjstore.h / tdjstore.cpp (Qt-Core-only, no widget dependencies). Every
+// secret is owned by CryptoManager m_crypto; there are no file-scope key,
+// salt, IV or cipher-handle globals and no extern chains any more. The GUI
+// talks to the store exclusively through TdjEncryptedFile and CryptoManager.
+// ---------------------------------------------------------------------------
 
 #endif // MAINWINDOW_H

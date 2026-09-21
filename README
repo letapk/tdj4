@@ -4,19 +4,20 @@ The letters in "tdj4" stand for "The Daily Journal". It is a PIM program, and
 is also the name of the binary executable. It is written using the Qt toolkit from
 www.qt.io.
 
-This is version 4-0.1.
+This is version 4-0.2.
 
 More information below, if you still want to read on.
 
 What does PIM mean?
 -------------------
 Personal Information Manager (I think), a program which manages daily notes,
-appointments, alarms, to-do lists, contacts, addresses, etc.
+appointments, alarms, notes and to-do lists, contacts, addresses, etc.
 
 What can it do, in its present form?
 ------------------------------------
 If you are in the habit of keeping daily notes, or a diary, or a journal  of
-your activities, tdj can keep them organised and accessible.
+your activities, as well as thoughts on various topics, tdj can keep them organised
+and accessible.
 
 That's nice, but does it ever do anything useful?
 -------------------------------------------------
@@ -42,7 +43,7 @@ There is a row of tabs which give access to the various components of the PIM.
 You can bring up your appointment table for the current day and you can add and
 make changes to or delete any appointment.
 
-You can maintain multiple to-do lists, a table of anniversaries as well as names
+You can maintain notes, multiple to-do lists, a table of anniversaries as well as names
 and addresses of your contacts, sorted into any organized set of categories of
 your choice.
 
@@ -80,7 +81,7 @@ package. Select the version you want to build (debug version or release version)
 Ctrl-B. If there are no problems, this should build the binary.
 
 The program has been compiled and tested on version 5.15.3 of Qt, under Ubuntu
-22.04.
+22.04.3.
 
 The binary may be stored locally in a directoriy separate from the source subdirectory,
 depending on how QtCreator is configured. This location will be available within QtCreator.
@@ -120,6 +121,13 @@ its user interface also in theGerman language, then the file containing the
 translations should be in the same location as the program binary, so copy it there
 as well:
 cp ./tdj4_de.qm /usr/local/bin/tdj4_de.qm
+
+Changes in version 4-0.2
+------------------------
+1. Changed the "Lists" tab to "Notes" along with associated user-facing text.
+Internal source code and filenames still refer to "lists" everywhere. Somehow the word conveys the meaning
+that one makes to-do-lists all the time, even when they may be just notes on miscellaneous topics.
+
 
 Changes in version 4-0.1
 ------------------------

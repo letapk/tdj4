@@ -16,28 +16,9 @@ email                : letapk@gmail.com
 
 */
 
-//Last modified 19 June 2022
+//Last modified 19 Sep 2026
 
 #include "tdj.h"
-
-extern char iniVector[];//initialization vector
-extern size_t blkLength;
-extern size_t txtLength; // string plus termination
-extern size_t txtLengthpadded; // string plus padded zero characters
-
-extern int padding, tdremainder;
-extern char *toencrypt, *encrypted, *todecrypt, *decrypted;
-extern FILE *encf;
-
-extern int aesenc (void);
-extern int aesdec (void);
-extern void crypt_error_notification (const char *errstr);
-extern void set_decrypt_variables(void);
-extern void free_dec_strings (void);
-
-extern QMessageBox *msgBox;
-
-extern size_t szt;
 
 void MainWindow::search_data()
 {
@@ -93,67 +74,51 @@ void MainWindow::search_notes_file(QFileInfo fi, QStringList *result)
 {
 QTextDocument *doc;
 QString s, s1, s2, s3, fname, Year, Month;
-int i, j[32], k;
+int i;
 
-    encf = fopen (fi.filePath().toUtf8().data(), "r");
+    fname = fi.baseName();//filename without path and extension : "Notes-xxxx-xx"
+    Month = fname.sliced(11);//remove leading part : "Notes-xxxx-". Only the month stays
+    Year = fi.baseName().sliced(6, 4);//the year part of the filename
 
-    if (encf == NULL) {
-        *result += tr("");
+    TdjEncryptedFile store(m_crypto);
+    int openr = store.open(fi.filePath(), m_crypto.sessionKey());
+    if (openr == TdjFieldCorrupt)
+        return;//a corrupt file is skipped silently
+    if (openr != TdjFieldOk) {
+        *result += tr("");//file does not exist
         return;
     }
+    TdjFieldSource &fs = store.source();
 
+    //a corrupt file is skipped silently - the rest of the files are still searched
     for (i = 1; i <= 31; i++) {
-        j[i] = 0;
-    }
+        QByteArray plain;
 
-    fname = fi.baseName();//filename without path and extension : "Notes-xxxx-xx"
-    Month = fname.remove (0, 11);//remove leading part : "Notes-xxxx-". Only "xx" remains
+        qint32 len;
+        int r = fs.readLen(len);
+        if (r == TdjFieldEof)//file ends cleanly here
+            break;
+        if (r == TdjFieldCorrupt)
+            break;
+        if (len == 0)//no note for this day
+            continue;
 
-    fname = fi.baseName();//filename without path and extension : "Notes-xxxx-xx"
-    Year = fname.remove(0, 6);//remove leading part of Notefilename : "Notes-". Only "xxxx-xx" remains
-    Year.truncate(4);//remove trailing part : "-xx". Only "xxxx" remains.
+        if (fs.readBody(len, plain) == TdjFieldCorrupt)
+            break;
 
-    szt = fread (&iniVector, sizeof (char), 16, encf);
-    for (i = 1; i <= 31; i++) {//length of each note
-        szt = fread (&(j[i]), sizeof (int), 1, encf);
-    }
+        doc = new QTextDocument ();
+        doc->setHtml(QString::fromUtf8(plain));
+        s = doc->toPlainText();
+        delete doc;
 
-
-    for (i = 1; i <= 31; i++) {
-
-        if (j[i] > 0) {
-            txtLength = j[i];
-            set_decrypt_variables ();
-            //read the data to be decrypted
-            szt = fread (todecrypt, txtLengthpadded, 1, encf);
-
-            //decrypt the data and put it in decrypted
-            k = aesdec ();
-            if (k == 1) {
-                crypt_error_notification ("Error in decryption of data.");
-            }
-            //put decrypted data into note for this day
-            s.clear();
-            s.append((const char *)decrypted);
-
-            //free the buffers
-            free_dec_strings ();
-
-            doc = new QTextDocument ();
-            doc->setHtml(s);
-            s = doc->toPlainText();
-            delete doc;
-
-            if (s.contains(&srchtxt, Qt::CaseInsensitive) == true) {
-                s1 = get_month_name(Month.toInt());
-                s2.setNum(i);
-                s3 = QString (tr("Found in the note for %1 %2, %3")).arg(s1).arg(s2).arg(Year);
-                result->append(s3);
-                srchresults->append(s3);
-            }
+        if (s.contains(srchtxt, Qt::CaseInsensitive) == true) {
+            s1 = get_month_name(Month.toInt());
+            s2.setNum(i);
+            s3 = QString (tr("Found in the note for %1 %2, %3")).arg(s1).arg(s2).arg(Year);
+            result->append(s3);
+            srchresults->append(s3);
         }
     }
-    fclose (encf);
 }
 
 void MainWindow::search_list_appts()
@@ -183,51 +148,48 @@ QFileInfoList list;
 void MainWindow::search_appts_file(QFileInfo fi, QStringList *result)
 {
 QString s, s1, s2, s3, fname, Year, Month;
-uint i, k, row;
-
-    encf = fopen (fi.filePath().toUtf8().data(), "r");
-    if (encf == NULL)
-        return;
+bool corrupt = false;
+int i, row;
 
     fname = fi.baseName();//filename without path and extension : "Appointments-xxxx-xx"
-    Month = fname.remove (0, 18);//remove leading part : "Appointments-xxxx-"
+    Month = fname.sliced(18);//remove leading part : "Appointments-xxxx-". Only the month stays
+    Year = fi.baseName().sliced(13, 4);//the year part of the filename
 
-    fname = fi.baseName();//filename without path and extension : "Appointments-xxxx-xx".
-    Year = fname.remove(0, 13);//remove leading part of Apptfilename : "Appointments-". Only "xxxx-xx" remains
-    Year.truncate(4);//remove trailing part : "-xx". Only "xxxx" remains.
+    TdjEncryptedFile store(m_crypto);
+    int openr = store.open(fi.filePath(), m_crypto.sessionKey());
+    if (openr == TdjFieldCorrupt)
+        return;//a corrupt file is skipped silently
+    if (openr != TdjFieldOk)
+        return;//file does not exist
+    TdjFieldSource &fs = store.source();
 
-    szt = fread (&iniVector, sizeof (char), 16, encf);
-    for (i = 1; i <= 31; i++) {
-         for(row = 0; row < 48; row++) {
-             //read and skip the time
-             //read the size of the time
-             szt = fread (&txtLength, sizeof (int), 1, encf);
-             set_decrypt_variables();
-             //read the encrypted time
-             szt = fread (todecrypt, txtLengthpadded, 1, encf);
+    //a corrupt file is skipped silently - the rest of the files are still searched
+    for (i = 1; i <= 31 && !corrupt; i++) {
+         for(row = 0; row < 48 && !corrupt; row++) {
+             QByteArray time, desc;
 
-             //free the buffers
-             free_dec_strings ();
-
-             //read the size of the description
-             szt = fread (&txtLength, sizeof (int), 1, encf);
-             set_decrypt_variables();
-             //read the encrypted description
-             szt = fread (todecrypt, txtLengthpadded, 1, encf);
-
-             k = aesdec ();
-             if (k == 1) {
-                 crypt_error_notification ("Error in decryption of appointments data.");
+             qint32 len;
+             int r = fs.readLen(len);
+             if (r == TdjFieldEof || r == TdjFieldCorrupt) {
+                 corrupt = true;
+                 break;
+             }
+             if (fs.readBody(len, time) == TdjFieldCorrupt) {
+                 corrupt = true;
+                 break;
              }
 
-             //assign the description to the appointment
-             s.clear();
-             s.append(decrypted);
+             r = fs.readLen(len);
+             if (r == TdjFieldEof || r == TdjFieldCorrupt) {
+                 corrupt = true;
+                 break;
+             }
+             if (fs.readBody(len, desc) == TdjFieldCorrupt) {
+                 corrupt = true;
+                 break;
+             }
 
-             //free the buffers
-             free_dec_strings ();
-
-             if (s.contains(&srchtxt, Qt::CaseInsensitive) == true) {
+             if (QString::fromUtf8(desc).contains(srchtxt, Qt::CaseInsensitive) == true) {
                  s1 = get_month_name(Month.toInt());
                  s2.setNum(i);
                  s3 = QString (tr("Found in the appointments for %1 %2, %3")).arg(s1).arg(s2).arg(Year);
@@ -236,6 +198,4 @@ uint i, k, row;
              }
          }
     }
-
-    fclose(encf);
 }
