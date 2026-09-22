@@ -594,6 +594,37 @@ bool tdj_html_has_text(const QString &html)
     return false;
 }
 
+int tdj_next_appointment_minutes(const int times[48], int nowMinute)
+{
+    int best = -1;
+
+    for (int row = 0; row < 48; row++) {
+        const int t = times[row];
+        if (t == 0)//blank row
+            continue;
+
+        const int hh = t / 100, mm = t % 100;
+        if (mm > 59)
+            continue;
+        int apptMin;
+        if (hh == 24 && mm == 0)//24:00 means the end of the day
+            apptMin = 24 * 60;
+        else if (hh > 23)
+            continue;
+        else
+            apptMin = hh * 60 + mm;
+
+        const int delta = apptMin - nowMinute;
+        if (delta <= 5)//passed, now, or within the alarm lead
+            continue;
+
+        if (best < 0 || delta < best)
+            best = delta;
+    }
+
+    return best;
+}
+
 void StorageManager::clearAll()
 {
     for (int i = 0; i < 32; i++) {
@@ -877,6 +908,20 @@ int StorageManager::loadAnns(CryptoManager &crypto, const QString &path)
 bool StorageManager::saveAnns(CryptoManager &crypto, const QString &path,
                               int inivecflag)
 {
+    if (inivecflag == 0) {//normal save: an anniversary set with no entries
+        bool any = false; //leaves no file behind (mirrors the month stores).
+        for (int i = 1; i < 367; i++) {//the only content criterion is a
+            if (!m_ann[i].description.isEmpty()) {//non-empty description
+                any = true;//(get_anniversary_items saves a row solely on it)
+                break;
+            }
+        }
+        if (!any) {
+            QFile::remove(path);
+            return true;
+        }
+    }
+
     QByteArray body;
     for (int i = 1; i < 367; i++) {
         tdj_append_field(body, m_ann[i].date.toUtf8());
@@ -958,6 +1003,11 @@ bool StorageManager::saveContacts(CryptoManager &crypto, const QString &path,
                                   int inivecflag,
                                   const QVector<TdjGroup> &groups)
 {
+    if (inivecflag == 0 && groups.isEmpty()) {//normal save: no contacts ->
+        QFile::remove(path);                   //no file (mirrors month stores)
+        return true;
+    }
+
     QByteArray body;
     int toplevelcount = groups.size();
     body.append(reinterpret_cast<const char *>(&toplevelcount), 4);
@@ -1014,6 +1064,11 @@ int StorageManager::loadLists(CryptoManager &crypto, const QString &path,
 bool StorageManager::saveLists(CryptoManager &crypto, const QString &path,
                                int inivecflag, const QVector<TdjList> &lists)
 {
+    if (inivecflag == 0 && lists.isEmpty()) {//normal save: no lists -> no file
+        QFile::remove(path);              //(mirrors month stores)
+        return true;
+    }
+
     QByteArray body;
     int toplevelcount = lists.size();
     body.append(reinterpret_cast<const char *>(&toplevelcount), 4);

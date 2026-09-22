@@ -92,6 +92,15 @@ QStringList tdj_attachment_refs(const QString &html);
 //stray (empty) month file over deleting one that holds an image.
 bool tdj_html_has_text(const QString &html);
 
+//pure alarm math, extracted from the GUI so the Phase-1 hour-boundary fix is
+//unit-testable. `times` is a day's 48 appointment slots as HHMM integers
+//(0 = blank, 2400 = end of day); `nowMinute` is the current minute of the day.
+//Returns the minutes from now until the nearest upcoming appointment that is
+//more than the 5-minute alarm lead away, or -1 when none qualifies (no
+//appointments, all passed, or all within the lead). The GUI schedules the
+//alarm itself for (result - 5) minutes.
+int tdj_next_appointment_minutes(const int times[48], int nowMinute);
+
 enum TdjFieldResult { TdjFieldEof = 0, TdjFieldOk = 1, TdjFieldCorrupt = -1 };
 
 // 0=missing file, 1=TDJ2, 2=legacy

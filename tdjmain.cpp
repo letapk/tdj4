@@ -16,7 +16,7 @@ email                : letapk@gmail.com
 
 */
 
-//Last modified 19 Sep 2026
+//Last modified 22 Sep 2026
 
 #include <QHeaderView>
 #include <QInputDialog>
@@ -97,12 +97,17 @@ int i;
         return 1;
     }
 
-    MainWindow mainwindow;
-    mainwindow.setWindowTitle(QObject::tr("The Daily Journal"));
-
-    mainwindow.show();
-
-    return app.exec();
+    try {
+        MainWindow mainwindow;
+        mainwindow.setWindowTitle(QObject::tr("The Daily Journal"));
+        mainwindow.show();
+        return app.exec();
+    }
+    catch (const StartupAbort &abort) {
+        //the startup password gate was cancelled or failed: the window was
+        //never shown and state has been unwound cleanly, so just exit
+        return abort.code;
+    }
 
 }
 
@@ -525,7 +530,7 @@ int inivecflag = 0;
                     msgBox.setInformativeText (QObject::tr("The program will now terminate"));
                     msgBox.exec();
                     delete_lockfile();
-                    std::exit (1);
+                    throw StartupAbort{1};
                 }
             }
             else if (dbstate == TdjDbLegacy || dbstate == TdjDbMixed) {
@@ -538,7 +543,7 @@ int inivecflag = 0;
         }
         else {//escape or Cancel button
             delete_lockfile();
-            std::exit (0);
+            throw StartupAbort{0};
         }
     }
 
@@ -647,6 +652,7 @@ int inivecflag = 0;
         cur_cat = contree->topLevelItem(0);
         contree->setCurrentItem(cur_cat);
         contacteditor->setHtml(import_legacy_images(cur_cat->text(1)));
+        contacteditor->refitImagesToWidth();
         cur_con = cur_cat;
         catflag = 1;
     }
@@ -667,6 +673,7 @@ int inivecflag = 0;
         cur_list = listree->topLevelItem(0);
         listree->setCurrentItem(cur_list);
         listeditor->setHtml(cur_list->text(1));
+        listeditor->refitImagesToWidth();
     }
     else {
         cur_list = con_item;
@@ -851,6 +858,8 @@ QString s;
     }
 
     datelabel->setText(calendar->selectedDate().toString("ddd d MMM yyyy"));
+    //fit any tdj-image: pictures in the just-loaded note to the editor width
+    noteditor->refitImagesToWidth();
 }
 
 void MainWindow::load_day()
@@ -1119,5 +1128,5 @@ QDir qtdir;
 
     delete_lockfile();
     qtdir.rmdir(qtpath);
-    std::exit(0);
+    throw StartupAbort{0};
 }

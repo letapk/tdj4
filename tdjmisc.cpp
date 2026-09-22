@@ -16,7 +16,7 @@ email                : letapk@gmail.com
 
 */
 
-//Last modified 19 Sep 2026
+//Last modified 22 Sep 2026
 
 #include "tdj.h"
 #include <QFileDialog>
@@ -26,6 +26,9 @@ email                : letapk@gmail.com
 #include <QTimer>
 #include <QRegularExpression>
 #include <QUrl>
+#include <QTextBlock>
+#include <QBuffer>
+#include <QSignalBlocker>
 
 extern void crypt_error_notification (const char *errstr);
 
@@ -385,7 +388,7 @@ QByteArray decrypted;
         msgBox.setText(serr);
         msgBox.exec();
         delete_lockfile();
-        std::exit (1);
+        throw StartupAbort{1};
     }
 
     QByteArray iv;
@@ -398,7 +401,7 @@ QByteArray decrypted;
         msgBox.setText(serr);
         msgBox.exec();
         delete_lockfile();
-        std::exit (1);
+        throw StartupAbort{1};
     }
     m_crypto.setLegacyIv(iv.constData());
 
@@ -417,7 +420,7 @@ QByteArray decrypted;
         msgBox.setText(serr);
         msgBox.exec();
         delete_lockfile();
-        std::exit (1);
+        throw StartupAbort{1};
     }
 
     Decstr = QString::fromUtf8(decrypted);
@@ -453,7 +456,7 @@ QByteArray decrypted;
         msgBox.setText(serr);
         msgBox.exec();
         delete_lockfile();
-        std::exit (1);
+        throw StartupAbort{1};
     }
 
 }
@@ -898,6 +901,10 @@ int i;
 
     editor->insertHtml(QString("<img src=\"%1\" />").arg(id));
     m_attachmentsDirty = true;
+
+    //fit the fresh picture to the current editor width (later window or
+    //splitter resizes are handled by TdjEditor::resizeEvent)
+    static_cast<TdjEditor*>(editor)->refitImagesToWidth();
 }
 
 QString MainWindow::import_legacy_images(const QString &html)
@@ -1045,6 +1052,100 @@ QVariant TdjEditor::loadResource(int type, const QUrl &name)
         }
     }
     return QTextEdit::loadResource(type, name);
+}
+
+void TdjEditor::refitImagesToWidth()
+{
+    if (m_store == 0)
+        return;
+
+    //follow the window width with a small margin, like Treecle's panel; never
+    //let the available box collapse to nothing during a drag
+    int maxWidth = qMax(60, viewport()->width() - 30);
+    if (maxWidth < 1)
+        return;
+
+    struct ImgScale { int pos; int len; QTextImageFormat fmt; };
+    QList<ImgScale> work;
+
+    QTextDocument *doc = document();
+
+    //pass 1: collect, without touching the document, which images actually
+    //need rescaling. Intrinsic sizes come from the stored attachment bytes via
+    //QImageReader::size(), which only decodes the image headers - cheap enough
+    //to repeat on every resize tick.
+    for (QTextBlock block = doc->begin(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            QTextFragment frag = it.fragment();
+            QTextCharFormat cf = frag.charFormat();
+            if (cf.isImageFormat() == false)
+                continue;
+            QTextImageFormat img = cf.toImageFormat();
+            QString id = img.name();
+            if (!id.startsWith("tdj-image:"))
+                continue;
+
+            QByteArray bytes;
+            if (!m_store->getAttachment(id, bytes))
+                continue;
+            QBuffer dev(&bytes);
+            QImageReader reader;
+            reader.setDevice(&dev);
+            QSize orig = reader.size();
+            if (orig.isValid() == false || orig.width() <= 0 || orig.height() <= 0)
+                continue;
+
+            int w = -1, h = -1;
+            if (orig.width() > maxWidth) {
+                w = maxWidth;
+                h = qMax(1, (int)((qreal)orig.height() * maxWidth / orig.width()));
+                if (img.width() == w && img.height() == h)
+                    continue;   //already sized to the current panel
+            }
+            else if (img.width() > 0)
+                ;               //smaller than the panel: restore intrinsic size
+            else
+                continue;       //already at its intrinsic size
+
+            ImgScale s;
+            s.pos = frag.position();
+            s.len = frag.length();
+            s.fmt = img;
+            s.fmt.setWidth(w);
+            s.fmt.setHeight(h);
+            work.append(s);
+        }
+    }
+
+    if (work.isEmpty())
+        return;
+
+    //pass 2: rewrite the formats. The edit block makes it one undo entry; the
+    //signal blocker keeps the editor's textChanged (-> save_note) from firing
+    //on a display-only resize, and the undo history is suspended so a resize
+    //drag can never poison the user's Undo stack.
+    const bool undoState = doc->isUndoRedoEnabled();
+    doc->setUndoRedoEnabled(false);
+    {
+        QSignalBlocker blocker(doc);
+        QTextCursor cur(doc);
+        cur.beginEditBlock();
+        for (const ImgScale &s : work) {
+            cur.setPosition(s.pos);
+            cur.setPosition(s.pos + s.len, QTextCursor::KeepAnchor);
+            cur.setCharFormat(s.fmt);
+        }
+        cur.endEditBlock();
+    }
+    doc->setUndoRedoEnabled(undoState);
+}
+
+void TdjEditor::resizeEvent(QResizeEvent *e)
+{
+    //let the base class relayout to the new width first, then refit the
+    //attachments so large pictures track the editor (or splitter) size
+    QTextEdit::resizeEvent(e);
+    refitImagesToWidth();
 }
 
 void MainWindow::cursorPositionChanged()

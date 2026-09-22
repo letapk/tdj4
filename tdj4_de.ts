@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.0" language="de" sourcelanguage="en">
+<TS version="2.1" language="de_DE" sourcelanguage="en_US">
 <context>
     <name>ComboBoxItemDelegate</name>
     <message>
@@ -302,33 +302,6 @@
         <translation>Dezember</translation>
     </message>
     <message>
-        <location filename="tdjlist.cpp" line="56"/>
-        <location filename="tdjlist.cpp" line="59"/>
-        <source>New list</source>
-        <translation>Neue Liste</translation>
-    </message>
-    <message>
-        <location filename="tdjlist.cpp" line="67"/>
-        <source>Added an empty list</source>
-        <translation>Leere Liste wurde angelegt</translation>
-    </message>
-    <message>
-        <location filename="tdjlist.cpp" line="110"/>
-        <source>List contains data. Please delete that, first.</source>
-        <translation>Liste enthält Daten. Bitte diese erst löschen.</translation>
-    </message>
-    <message>
-        <location filename="tdjlist.cpp" line="121"/>
-        <location filename="tdjlist.cpp" line="131"/>
-        <source>List deleted</source>
-        <translation>Liste gelöscht</translation>
-    </message>
-    <message>
-        <location filename="tdjlist.cpp" line="142"/>
-        <source>Last list deleted</source>
-        <translation>Letzte Liste gelöscht</translation>
-    </message>
-    <message>
         <location filename="tdjmain.cpp" line="132"/>
         <source>&amp;File</source>
         <translation>&amp;Datei</translation>
@@ -340,11 +313,6 @@
     </message>
     <message>
         <location filename="tdjmain.cpp" line="138"/>
-        <source>Export &amp;notes as text</source>
-        <translation>Exportiere &amp;Notizen als Text</translation>
-    </message>
-    <message>
-        <location filename="tdjmain.cpp" line="142"/>
         <source>Export &amp;notes as text</source>
         <translation>Exportiere &amp;Notizen als Text</translation>
     </message>
@@ -410,21 +378,6 @@
         <location filename="tdjprefs.cpp" line="285"/>
         <source>Contacts</source>
         <translation>Kontakte</translation>
-    </message>
-    <message>
-        <location filename="tdjmain.cpp" line="216"/>
-        <source>&amp;New List</source>
-        <translation>&amp;Neue Liste</translation>
-    </message>
-    <message>
-        <location filename="tdjmain.cpp" line="217"/>
-        <source>Create a new list</source>
-        <translation>Neue Liste anlegen</translation>
-    </message>
-    <message>
-        <location filename="tdjmain.cpp" line="223"/>
-        <source>Delete this list</source>
-        <translation>Lösche diese Liste</translation>
     </message>
     <message>
         <location filename="tdjmain.cpp" line="238"/>
@@ -534,11 +487,6 @@
         <translation>Neues Passwort:</translation>
     </message>
     <message>
-        <location filename="tdjmain.cpp" line="395"/>
-        <source>16 characters, maximum. Use a complex mix of letters, numbers and special characters</source>
-        <translation>16 Zeichen, Maximum. Verwende einen komplexen Mix aus Buchstaben, Zahlen und Sonderzeichen</translation>
-    </message>
-    <message>
         <location filename="tdjmain.cpp" line="398"/>
         <source>Re-enter new password:</source>
         <translation>Neues Passwort noch einmal eingeben:</translation>
@@ -547,16 +495,6 @@
         <location filename="tdjmain.cpp" line="402"/>
         <source>Re-type the password exactly as in the box above</source>
         <translation>Schreibe das Passwort erneut, genau wie in der obigen Box</translation>
-    </message>
-    <message>
-        <location filename="tdjmain.cpp" line="405"/>
-        <source>Phrase to encode:</source>
-        <translation>Phrase um zu verschlüsseln:</translation>
-    </message>
-    <message>
-        <location filename="tdjmain.cpp" line="408"/>
-        <source>Enter a complex phrase or string of characters</source>
-        <translation>Gebe eine komplexe Phrase oder Zeichenkette ein</translation>
     </message>
     <message>
         <location filename="tdjmain.cpp" line="411"/>
@@ -641,11 +579,6 @@ Hake die Box an für eine tägliche Terminwiederholung</translation>
         <translation>Daten der Notizen gespeichert unter %1</translation>
     </message>
     <message>
-        <location filename="tdjmisc.cpp" line="475"/>
-        <source>Notes data saved to %1</source>
-        <translation>Daten der Notizen gespeichert unter %1</translation>
-    </message>
-    <message>
         <location filename="tdjmisc.cpp" line="498"/>
         <source>&amp;Bold</source>
         <translation>&amp;Fett</translation>
@@ -723,39 +656,8 @@ Hake die Box an für eine tägliche Terminwiederholung</translation>
     <message>
         <location filename="tdjprefs.cpp" line="25"/>
         <location filename="tdjprefs.cpp" line="69"/>
-        <source>tdj</source>
-        <translation>tdj</translation>
-    </message>
-    <message>
-        <location filename="tdjprefs.cpp" line="25"/>
-        <location filename="tdjprefs.cpp" line="69"/>
         <source>The Daily Journal</source>
         <translation>The Daily Journal</translation>
-    </message>
-    <message>
-        <location filename="tdjprefs.cpp" line="27"/>
-        <location filename="tdjprefs.cpp" line="71"/>
-        <source>pos</source>
-        <translation>pos</translation>
-    </message>
-    <message>
-        <location filename="tdjprefs.cpp" line="29"/>
-        <location filename="tdjprefs.cpp" line="73"/>
-        <source>size</source>
-        <translation>size</translation>
-    </message>
-    <message>
-        <location filename="tdjprefs.cpp" line="31"/>
-        <location filename="tdjprefs.cpp" line="75"/>
-        <source>weekstart</source>
-        <translation>weekstart</translation>
-    </message>
-    <message>
-        <location filename="tdjprefs.cpp" line="34"/>
-        <location filename="tdjprefs.cpp" line="36"/>
-        <location filename="tdjprefs.cpp" line="88"/>
-        <source>Grid</source>
-        <translation>Grid</translation>
     </message>
     <message>
         <location filename="tdjprefs.cpp" line="34"/>
@@ -765,71 +667,9 @@ Hake die Box an für eine tägliche Terminwiederholung</translation>
         <translation>1</translation>
     </message>
     <message>
-        <location filename="tdjprefs.cpp" line="36"/>
-        <location filename="tdjprefs.cpp" line="41"/>
-        <location filename="tdjprefs.cpp" line="47"/>
-        <location filename="tdjprefs.cpp" line="88"/>
-        <location filename="tdjprefs.cpp" line="98"/>
-        <location filename="tdjprefs.cpp" line="109"/>
-        <location filename="tdjprefs.cpp" line="126"/>
-        <location filename="tdjprefs.cpp" line="142"/>
-        <source>0</source>
-        <translation>0</translation>
-    </message>
-    <message>
-        <location filename="tdjprefs.cpp" line="39"/>
-        <location filename="tdjprefs.cpp" line="41"/>
-        <location filename="tdjprefs.cpp" line="98"/>
-        <source>WeekNum</source>
-        <translation>WeekNum</translation>
-    </message>
-    <message>
-        <location filename="tdjprefs.cpp" line="45"/>
-        <location filename="tdjprefs.cpp" line="47"/>
-        <location filename="tdjprefs.cpp" line="109"/>
-        <source>Fortune</source>
-        <translation>Fortune</translation>
-    </message>
-    <message>
-        <location filename="tdjprefs.cpp" line="50"/>
-        <location filename="tdjprefs.cpp" line="122"/>
-        <source>Font</source>
-        <translation>Font</translation>
-    </message>
-    <message>
-        <location filename="tdjprefs.cpp" line="52"/>
-        <location filename="tdjprefs.cpp" line="126"/>
-        <source>Startingtab</source>
-        <translation>Startingtab</translation>
-    </message>
-    <message>
-        <location filename="tdjprefs.cpp" line="58"/>
-        <location filename="tdjprefs.cpp" line="142"/>
-        <source>Headerred</source>
-        <translation>Headerred</translation>
-    </message>
-    <message>
-        <location filename="tdjprefs.cpp" line="59"/>
-        <location filename="tdjprefs.cpp" line="144"/>
-        <source>Headergreen</source>
-        <translation>Headergreen</translation>
-    </message>
-    <message>
-        <location filename="tdjprefs.cpp" line="60"/>
-        <location filename="tdjprefs.cpp" line="146"/>
-        <source>Headerblue</source>
-        <translation>Headerblue</translation>
-    </message>
-    <message>
         <location filename="tdjprefs.cpp" line="75"/>
         <source>7</source>
         <translation>7</translation>
-    </message>
-    <message>
-        <location filename="tdjprefs.cpp" line="144"/>
-        <location filename="tdjprefs.cpp" line="146"/>
-        <source>255</source>
-        <translation>255</translation>
     </message>
     <message>
         <location filename="tdjprefs.cpp" line="238"/>
@@ -887,11 +727,6 @@ Hake die Box an für eine tägliche Terminwiederholung</translation>
         <translation>Beim Start des Pro&amp;gramms anzeigen :</translation>
     </message>
     <message>
-        <location filename="tdjprefs.cpp" line="278"/>
-        <source>Notes</source>
-        <translation>Notizen</translation>
-    </message>
-    <message>
         <location filename="tdjprefs.cpp" line="282"/>
         <source>Appointments</source>
         <translation>Termine</translation>
@@ -941,7 +776,6 @@ Hake die Box an für eine tägliche Terminwiederholung</translation>
     <message>
         <location filename="tdjtree.cpp" line="121"/>
         <source>New Group&lt;p&gt;&lt;/p&gt;Enter group description here. The first line becomes the group name in the tree on the left.</source>
-        <oldsource>Enter group description here. The first line becomes the group name in the tree on the left.</oldsource>
         <translation>Neue Gruppe&lt;p&gt;&lt;/p&gt;Hier Gruppenbeschreibung eingeben. Die erste Zeile wird zum Gruppennamen links.</translation>
     </message>
     <message>
@@ -957,13 +791,11 @@ Hake die Box an für eine tägliche Terminwiederholung</translation>
     <message>
         <location filename="tdjtree.cpp" line="149"/>
         <source>New Contact</source>
-        <oldsource>Empty Contact</oldsource>
         <translation>Leerer Kontakt</translation>
     </message>
     <message>
         <location filename="tdjtree.cpp" line="152"/>
         <source>New Contact&lt;p&gt;&lt;/p&gt;Enter contact data here. The first line becomes the contact name in the tree on the left.</source>
-        <oldsource>Enter contact data here. The first line becomes the contact name in the tree on the left.</oldsource>
         <translation>Neuer Kontakt&lt;p&gt;&lt;/p&gt;Hier eine Beschreibung des Kontakts eingeben. Die erste Zeile wird zum Kontaktnamen links.</translation>
     </message>
     <message>
@@ -997,6 +829,123 @@ Hake die Box an für eine tägliche Terminwiederholung</translation>
         <source>Deleted contact</source>
         <translation>Kontakt gelöscht</translation>
     </message>
+    <message>
+        <location filename="tdjmain.cpp" line="228"/>
+        <source>&amp;New Note</source>
+        <translation>&amp;Neue Notiz</translation>
+    </message>
+    <message>
+        <location filename="tdjlist.cpp" line="66"/>
+        <source>Added an empty note</source>
+        <translation>Leere Notiz hinzugefügt</translation>
+    </message>
+    <message>
+        <location filename="tdjmain.cpp" line="407"/>
+        <source>Click to select a different data subdirectory for the application</source>
+        <translation>Klicken, um ein anderes Datenunterverzeichnis für die Anwendung auszuwählen</translation>
+    </message>
+    <message>
+        <location filename="tdjmain.cpp" line="229"/>
+        <source>Create a new note</source>
+        <translation>Neue Notiz erstellen</translation>
+    </message>
+    <message>
+        <location filename="tdjmain.cpp" line="992"/>
+        <source>Data directory changed</source>
+        <translation>Datenverzeichnis geändert</translation>
+    </message>
+    <message>
+        <location filename="tdjmain.cpp" line="235"/>
+        <source>Delete this note</source>
+        <translation>Diese Notiz löschen</translation>
+    </message>
+    <message>
+        <location filename="tdjmain.cpp" line="270"/>
+        <source>Drag to resize the calendar</source>
+        <translation>Ziehen, um die Größe des Kalenders zu ändern</translation>
+    </message>
+    <message>
+        <location filename="tdjmain.cpp" line="259"/>
+        <source>Drag to resize the left panel</source>
+        <translation>Ziehen, um die Größe des linken Bereichs zu ändern</translation>
+    </message>
+    <message>
+        <location filename="tdjmain.cpp" line="136"/>
+        <source>Export &amp;journal as text</source>
+        <translation>Journal als Text &amp;exportieren</translation>
+    </message>
+    <message>
+        <location filename="tdjprefs.cpp" line="280"/>
+        <source>General</source>
+        <translation>Allgemein</translation>
+    </message>
+    <message>
+        <location filename="tdjmisc.cpp" line="887"/>
+        <source>Image too large</source>
+        <translation>Bild zu groß</translation>
+    </message>
+    <message>
+        <location filename="tdjprefs.cpp" line="322"/>
+        <source>Journal</source>
+        <translation>Journal</translation>
+    </message>
+    <message>
+        <location filename="tdjmisc.cpp" line="635"/>
+        <source>Journal data saved to %1</source>
+        <translation>Journaldaten in %1 gespeichert</translation>
+    </message>
+    <message>
+        <location filename="tdjlist.cpp" line="129"/>
+        <source>Last note deleted</source>
+        <translation>Letzte Notiz gelöscht</translation>
+    </message>
+    <message>
+        <location filename="tdjlist.cpp" line="55"/>
+        <source>New note</source>
+        <translation>Neue Notiz</translation>
+    </message>
+    <message>
+        <location filename="tdjlist.cpp" line="97"/>
+        <source>Note contains data. Please delete that, first.</source>
+        <translation>Die Notiz enthält Daten. Bitte diese erst löschen.</translation>
+    </message>
+    <message>
+        <location filename="tdjlist.cpp" line="108"/>
+        <source>Note deleted</source>
+        <translation>Notiz gelöscht</translation>
+    </message>
+    <message>
+        <location filename="tdjmain.cpp" line="405"/>
+        <source>Select a different data subdirectory</source>
+        <translation>Anderes Datenunterverzeichnis auswählen</translation>
+    </message>
+    <message>
+        <location filename="tdjmain.cpp" line="979"/>
+        <source>Select the new data directory</source>
+        <translation>Neues Datenverzeichnis auswählen</translation>
+    </message>
+    <message>
+        <location filename="tdjmain.cpp" line="984"/>
+        <source>The directory could not be created.</source>
+        <translation>Das Verzeichnis konnte nicht erstellt werden.</translation>
+    </message>
+    <message>
+        <location filename="tdjmisc.cpp" line="888"/>
+        <source>The image is larger than %1 MB and cannot be stored in the encrypted database.</source>
+        <translation>Das Bild ist größer als %1 MB und kann nicht in der verschlüsselten Datenbank gespeichert werden.</translation>
+    </message>
+    <message>
+        <location filename="tdjmain.cpp" line="993"/>
+        <source>The new data directory will be used the next time the program starts.
+Existing data is not copied or moved; the new directory must contain a database (or will be created empty).</source>
+        <translation>Das neue Datenverzeichnis wird beim nächsten Programmstart verwendet.
+Vorhandene Daten werden nicht kopiert oder verschoben; das neue Verzeichnis muss eine Datenbank enthalten (oder wird leer erstellt).</translation>
+    </message>
+    <message>
+        <location filename="tdjmain.cpp" line="438"/>
+        <source>Use a complex mix of letters, numbers and special characters</source>
+        <translation>Verwenden Sie eine komplexe Mischung aus Buchstaben, Zahlen und Sonderzeichen</translation>
+    </message>
 </context>
 <context>
     <name>QObject</name>
@@ -1004,11 +953,6 @@ Hake die Box an für eine tägliche Terminwiederholung</translation>
         <location filename="tdjmain.cpp" line="115"/>
         <source>The Daily Journal</source>
         <translation>The Daily Journal</translation>
-    </message>
-    <message>
-        <location filename="tdjmain.cpp" line="911"/>
-        <source>None of the fields can be empty</source>
-        <translation>Keines der Felder dürfen leer sein</translation>
     </message>
     <message>
         <location filename="tdjmain.cpp" line="921"/>
@@ -1024,16 +968,6 @@ Hake die Box an für eine tägliche Terminwiederholung</translation>
         <location filename="tdjmain.cpp" line="941"/>
         <source>All the data will be encrypted with this password. </source>
         <translation>Alle Daten werden mit diesem Passwort verschlüsselt.</translation>
-    </message>
-    <message>
-        <location filename="tdjmain.cpp" line="942"/>
-        <source>Enter this password the next time you run The Daily Journal </source>
-        <translation>Gebe dieses Passwort beim nächsten Start von The Daily Journal ein</translation>
-    </message>
-    <message>
-        <location filename="tdjmain.cpp" line="943"/>
-        <source>and confirm the decoded phrase when it is displayed.</source>
-        <translation>und bestätige die entschlüsselte Phrase wenn sie angezeigt wird.</translation>
     </message>
     <message>
         <location filename="tdjmain.cpp" line="965"/>
@@ -1157,16 +1091,39 @@ Hake die Box an für eine tägliche Terminwiederholung</translation>
         <translation>Das Programm wird jetzt beendet</translation>
     </message>
     <message>
-        <location filename="tdjmisc.cpp" line="694"/>
-        <source>The image file has been copied to the tdj data directory </source>
-        <translation>Die Bilddatei wurde in das tdj Datenverzeichnis kopiert</translation>
+        <location filename="tdjmisc.cpp" line="415"/>
+        <source>Check that you entered the correct password.</source>
+        <translation>Prüfen Sie, ob Sie das richtige Passwort eingegeben haben.</translation>
     </message>
     <message>
-        <location filename="tdjmisc.cpp" line="696"/>
-        <source>
-Click OK to continue</source>
-        <translation>
-Klicke auf OK um fortzufahren</translation>
+        <location filename="tdjmain.cpp" line="1081"/>
+        <source>Enter this password the next time you run The Daily Journal. </source>
+        <translation>Geben Sie dieses Passwort beim nächsten Start von The Daily Journal ein. </translation>
+    </message>
+    <message>
+        <location filename="tdjmisc.cpp" line="414"/>
+        <source>The encrypted test phrase could not be decoded.</source>
+        <translation>Die verschlüsselte Testphrase konnte nicht entschlüsselt werden.</translation>
+    </message>
+    <message>
+        <location filename="tdjmisc.cpp" line="383"/>
+        <source>The encrypted test phrase could not be read.</source>
+        <translation>Die verschlüsselte Testphrase konnte nicht gelesen werden.</translation>
+    </message>
+    <message>
+        <location filename="tdjmain.cpp" line="92"/>
+        <source>The program could not create its lock file. The data directory may not be writable, or another instance may be using it. The program will now terminate.</source>
+        <translation>Das Programm konnte seine Sperrdatei nicht erstellen. Das Datenverzeichnis ist möglicherweise nicht beschreibbar, oder eine andere Instanz verwendet es. Das Programm wird jetzt beendet.</translation>
+    </message>
+    <message>
+        <location filename="tdjmain.cpp" line="1082"/>
+        <source>There is no way to recover the data if it is forgotten.</source>
+        <translation>Es gibt keine Möglichkeit, die Daten wiederherzustellen, wenn sie vergessen werden.</translation>
+    </message>
+    <message>
+        <location filename="tdjmain.cpp" line="524"/>
+        <source>The password entered does not match the stored data.</source>
+        <translation>Das eingegebene Passwort stimmt nicht mit den gespeicherten Daten überein.</translation>
     </message>
 </context>
 </TS>

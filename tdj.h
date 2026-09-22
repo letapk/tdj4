@@ -16,7 +16,7 @@ email                : letapk@gmail.com
 
 */
 
-//Last modified 19 Sep 2026
+//Last modified 22 Sep 2026
 
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
@@ -71,6 +71,13 @@ email                : letapk@gmail.com
 //(CryptoManager) and the store file facade (TdjEncryptedFile). Qt-Core-only.
 #include "tdjstore.h"
 
+//the user may Cancel (or fail) the startup password gate before MainWindow is
+//fully usable. std::exit() from inside the constructor would skip destructor
+//unwinding and tear the Qt stack down while widgets are still alive, which
+//crashes on some platforms. Instead the startup-only exit sites throw this
+//sentinel; main() unwinds the half-built window cleanly and returns the code.
+struct StartupAbort { int code; };
+
 //editor that renders encrypted attachments: <img src="tdj-image:<id>"> is
 //resolved through StorageManager::getAttachment() (the raw bytes live only in
 //the encrypted Attachments.tdj store), so nothing is ever read from a loose
@@ -83,8 +90,17 @@ class TdjEditor : public QTextEdit
 public:
     explicit TdjEditor(StorageManager *store, QWidget *parent = 0);
 
+    //rewrite the display width of every tdj-image: reference so it fits the
+    //current viewport width (with the same small margin Treecle uses), keeping
+    //the aspect ratio from the stored image header and never upscaling. Called
+    //on resize events and after insert/load, so large pictures reflow when the
+    //user drags the window or the splitter. Display-only: char data untouched,
+    //and the format rewrite is wrapped so the editor's textChanged never fires.
+    void refitImagesToWidth();
+
 protected:
     QVariant loadResource(int type, const QUrl &name) override;
+    void resizeEvent(QResizeEvent *e) override;
 
 private:
     StorageManager *m_store;
@@ -176,6 +192,10 @@ class MainWindow : public QMainWindow
     QTableWidgetItem appcol0[48], appcol1[48];
     //this stores all the 48 appt times for today, some may be zero.
     int appt_time_array[48];
+
+    //single re-armable appointment-reminder timer (one pending shot only; a
+    //fresh QTimer::singleShot per call used to stack and pop up twice)
+    QTimer *apptReminderTimer = nullptr;
 
     //items for anniversaries table
     QTableWidgetItem anncol0[367], anncol1[367], anncol2[367];

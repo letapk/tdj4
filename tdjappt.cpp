@@ -271,44 +271,37 @@ int i;
 void MainWindow::set_next_appointment_timer ()
 {
 //schedule the alarm for exactly 5 minutes before an upcoming appointment.
-//the old code computed the error as 40 hours times the number of hours
+//The old code computed the error as 40 hours times the number of hours
 //crossed, so a 13:00 appointment checked at 12:59 reported 41 minutes to
 //go and a 13:00 appointment checked at 12:30 reported 70 minutes, causing
 //the "5 minutes before" alarm to fire an hour late (and often to be missed
-//altogether). All intervals are now computed in real minutes.
+//altogether). The real-minute interval math now lives in
+//tdj_next_appointment_minutes() (tdjstore) so the fix is unit-testable.
 QTime now;
-int apptMin, delta;
-int best = -1;
-int row;
+int best;
+
+    //every call must cancel the shot armed earlier: a fresh
+    //QTimer::singleShot per invocation stacked timers for the same moment
+    //when set_next_appointment_timer() ran twice before the alarm fired
+    //(startup plus showing today's date), so the popup appeared twice
+    if (apptReminderTimer == nullptr) {
+        apptReminderTimer = new QTimer(this);
+        apptReminderTimer->setSingleShot(true);
+        apptReminderTimer->setObjectName("apptReminderTimer");
+        connect(apptReminderTimer, &QTimer::timeout,
+                this, &MainWindow::issue_appt_alarm);
+    }
+    apptReminderTimer->stop();
 
     now = QTime::currentTime();
 
-    for (row = 0; row < 48; row++) {
-        int t = appt_time_array[row];
-        if (t == 0)//blank row
-            continue;
-
-        const int hh = t / 100, mm = t % 100;
-        if (mm > 59)
-            continue;
-        if (hh == 24 && mm == 0)//24:00 means the end of the day
-            apptMin = 24 * 60;
-        else if (hh > 23)
-            continue;
-        else
-            apptMin = hh * 60 + mm;
-        delta = apptMin - (now.hour() * 60 + now.minute());
-        if (delta <= 5)//appointment passed, is now, or is within the alarm lead
-            continue;
-
-        //find the least interval
-        if (best < 0 || delta < best)
-            best = delta;
-    }
+    best = tdj_next_appointment_minutes (appt_time_array,
+                                         now.hour() * 60 + now.minute());
 
     if (best > 0) {
-        //alarm 5 minutes before the nearest appointment
-        QTimer::singleShot((best - 5) * 60 * 1000, this, &MainWindow::issue_appt_alarm);
+        //alarm 5 minutes before the nearest appointment (best >= 6 always
+        //here, so the interval is at least one minute)
+        apptReminderTimer->start((best - 5) * 60 * 1000);
     }
 }
 
