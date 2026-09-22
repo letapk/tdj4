@@ -139,7 +139,6 @@ void check_qtdata_dir ()
 {
 QString qtpath, s1;
 QDir qtdir;
-QMessageBox msgBox;
 
     qtpath.append (userpath);
     qtdir = QDir (qtpath);
@@ -150,6 +149,9 @@ QMessageBox msgBox;
         s1.append (QObject::tr("Click OK to create a new, hidden subdirectory "));
         s1.append (QObject::tr("in your area with the name :\n"));
         s1.append (qtpath);
+        //a fresh box per prompt: one that was already exec()'d can re-show with
+        //a duplicated OK button under some platform themes
+        QMessageBox msgBox;
         msgBox.setText(s1);
         msgBox.exec();
 
@@ -159,12 +161,46 @@ QMessageBox msgBox;
         s1.append (QObject::tr("The program needs a password to encrypt the data. "));
         s1.append (QObject::tr("This will not be stored anywhere, and thus should not be forgotten.\n"));
         s1.append (QObject::tr("Click OK to create a new password in the next step.\n"));
-        msgBox.setText(s1);
-        msgBox.exec();
+        QMessageBox pwdBox;
+        pwdBox.setText(s1);
+        pwdBox.exec();
 
         //ask for password
         setpwd = true;
     }
+}
+
+void MainWindow::set_data_filenames ()
+//compute every data-store path for this database (Homepath) and the month
+//currently shown. Called before the password gate so a brand-new database can
+//anchor its store set to the real paths, and again when the displayed month
+//changes; all the load/save paths read straight from these members.
+{
+QString s1, s2, s3;
+
+    Notefilename = Homepath;
+    s1.setNum (year);
+    s2.setNum(month);
+    if (month < 10) {
+        s3 = QString ("/Notes-%1-0%2.tdj").arg(s1).arg(s2);
+    }
+    else
+        s3 = QString ("/Notes-%1-%2.tdj").arg(s1).arg(s2);
+    Notefilename += s3;
+
+    Appointmentsfilename = Homepath;
+    if (month < 10) {
+        s3 = QString ("/Appointments-%1-0%2.tdj").arg(s1).arg(s2);
+    }
+    else
+        s3 = QString ("/Appointments-%1-%2.tdj").arg(s1).arg(s2);
+    Appointmentsfilename += s3;
+
+    DailyAppointmentsfilename = Homepath + "/DailyAppointments.tdj";
+    Contactfilename = Homepath + "/Contacts.tdj";
+    Listfilename = Homepath + "/Lists.tdj";
+    Anniversaryfilename = Homepath + "/Anniversaries.tdj";
+    Attachmentsfilename = Homepath + "/Attachments.tdj";
 }
 
 MainWindow::~MainWindow()

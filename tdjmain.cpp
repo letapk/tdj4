@@ -480,7 +480,7 @@ void MainWindow::initialize()
 {
 bool ok;
 int row;
-QString p, s1, s2, s3;
+QString p;
 int inivecflag = 0;
 
     //when the program starts:
@@ -504,6 +504,15 @@ int inivecflag = 0;
     //(a fresh, per-database salt is created for legacy or new databases)
     TdjDbState dbstate = (TdjDbState) m_crypto.scanDbState(Homepath);
     m_crypto.initDbSalt(Homepath);
+
+    //the store paths and the current date must be fixed BEFORE the password
+    //gate: a brand-new database anchors its (empty) store set through
+    //reencrypt_all_stores(), which needs the real filenames (see set_data_filenames)
+    getdate();
+    current_year = year;
+    current_month = month;
+    current_date = date_to_show;
+    set_data_filenames ();
 
     if (setpwd == true) {
         //a brand-new database: the password dialog installs the key and
@@ -572,37 +581,18 @@ int inivecflag = 0;
     cur_list = new QTreeWidgetItem ();
     con_item = new QTreeWidgetItem ();
 
-    //get current day and date
-    getdate();
-    current_year = year;
-    current_month = month;
-    current_date = date_to_show;
-
     //set the label for the button showing today's date
     QDate *d = new QDate (current_year, current_month, current_date);
     todaybut.setText(d->toString());
     delete d;
 
     //encrypted attachment store (T2): images live here, never as loose
-    //plaintext files; load it before shownote() so existing tdj-image: refs
-    //render on the very first day
-    Attachmentsfilename.append (Homepath);
-    Attachmentsfilename.append ("/Attachments.tdj");
+    //plaintext files; loaded before shownote() so existing tdj-image: refs
+    //render on the very first day (the path was fixed by set_data_filenames)
     m_store.loadAttachments (m_crypto, Attachmentsfilename, inivecflag);
 
-    //notes file to read
-    s1.setNum (year);
-    s2.setNum(month);
-    Notefilename.append (Homepath);
-    if (month < 10) {
-        s3 = QString ("/Notes-%1-0%2.tdj").arg(s1).arg(s2);
-    }
-    else
-        s3 = QString ("/Notes-%1-%2.tdj").arg(s1).arg(s2);
-    Notefilename.append (s3);
-    read_journal_file (inivecflag);
-
     //display today's journal entry
+    read_journal_file (inivecflag);
     shownote ();
 
     //show the checkboxes in col 1 of the appointments table
@@ -610,20 +600,10 @@ int inivecflag = 0;
         appcol0[row].setCheckState(Qt::Unchecked);
     }
 
-    //appointments file to read
-    Appointmentsfilename.append(Homepath);
-    if (month < 10) {
-        s3 = QString ("/Appointments-%1-0%2.tdj").arg(s1).arg(s2);
-    }
-    else
-        s3 = QString ("/Appointments-%1-%2.tdj").arg(s1).arg(s2);
-    Appointmentsfilename.append (s3);
+    //appointments for the displayed month
     read_appt_file (inivecflag);
 
-    //daily appointments file to read
-    DailyAppointmentsfilename.append(Homepath);
-    s3 = QString ("/DailyAppointments.tdj");
-    DailyAppointmentsfilename.append (s3);
+    //daily appointments for the whole year
     read_daily_appt_file ();
 
     //populate the appointment table items (appcols) with today's appointments,
@@ -642,9 +622,7 @@ int inivecflag = 0;
     catflag = 0;
     contreeempty = true;
 
-    //contacts file to read
-    Contactfilename.append (Homepath);
-    Contactfilename.append ("/Contacts.tdj");
+    //contacts file to read (path fixed by set_data_filenames)
     read_contacts ();
 
     //set the first category in contacts as the current category
@@ -663,9 +641,7 @@ int inivecflag = 0;
 
     listreeempty = true;
 
-    //lists file to read
-    Listfilename.append (Homepath);
-    Listfilename.append ("/Lists.tdj");
+    //lists file to read (path fixed by set_data_filenames)
     read_lists ();
 
     //set the first list as the current list
@@ -684,9 +660,7 @@ int inivecflag = 0;
     listree->sortByColumn(0, Qt::AscendingOrder);
     listree->setSortingEnabled(false);
 
-    //anniversary file to read
-    Anniversaryfilename.append(Homepath);
-    Anniversaryfilename.append("/Anniversaries.tdj");
+    //anniversary file to read (path fixed by set_data_filenames)
     read_ann_file ();
 
     //all stores are now in memory; migrate any legacy database in place
@@ -875,36 +849,17 @@ void MainWindow::load_day()
 void MainWindow::load_month()
 //read data for another month and display it
 {
-QString s1, s2, s3;
 int inivecflag = 0;
 
     get_appointment_items ();
     write_journal_file (inivecflag);
     write_appt_file (inivecflag);
 
-    //get the new month and year displayed on calendar
+    //get the new month and year displayed on the calendar and re-point every
+    //store path at it (Notes/Appointments change per month; the flat stores
+    //are already correct)
     getdate();
-
-    //notes file to read
-    Notefilename.clear();
-    s1.setNum (year);
-    s2.setNum(month);
-    Notefilename.append (Homepath);
-    if (month < 10) {
-        s3 = QString ("/Notes-%1-0%2.tdj").arg(s1).arg(s2);
-    }
-    else
-        s3 = QString ("/Notes-%1-%2.tdj").arg(s1).arg(s2);
-    Notefilename.append (s3);
-
-    Appointmentsfilename.clear();
-    Appointmentsfilename.append(Homepath);
-    if (month < 10) {
-        s3 = QString ("/Appointments-%1-0%2.tdj").arg(s1).arg(s2);
-    }
-    else
-        s3 = QString ("/Appointments-%1-%2.tdj").arg(s1).arg(s2);
-    Appointmentsfilename.append (s3);
+    set_data_filenames ();
 
     read_journal_file (inivecflag);
     read_appt_file (inivecflag);
@@ -1069,20 +1024,17 @@ QMessageBox msgBox;
         serr.append (QObject::tr("Passwords do not match."));
         msgBox.setText(serr);
         msgBox.exec();
-        if (setpwd == false)
-            Chpwdialog->reject();
-        else
-            clean_up_and_quit();
+        //always reject: for a fresh setup change_password() turns the
+        //rejection into a clean_startup_abort OUTSIDE this dialog's event loop
+        //(calling clean_up_and_quit() here segfaults on real platforms)
+        Chpwdialog->reject();
     }
     else if ((s1 == s2) && (s1.isEmpty() == true)) {
         serr.clear();
         serr.append (QObject::tr("The password cannot be empty"));
         msgBox.setText(serr);
         msgBox.exec();
-        if (setpwd == false)
-            Chpwdialog->reject();
-        else
-            clean_up_and_quit();
+        Chpwdialog->reject();
     }
     else {
         serr.clear();
@@ -1101,15 +1053,20 @@ void MainWindow::cncl_pwd_change()//user clicked cancel
 QString serr;
 QMessageBox msgBox;
 
-    serr.clear();
-    if (setpwd == false) {
-        serr.append (QObject::tr("Password unchanged."));
-        msgBox.setText(serr);
-        msgBox.exec();
+    if (setpwd == true) {
+        //fresh-database setup: just close the dialog and let change_password()
+        //see the rejection. Calling clean_up_and_quit() from here would throw
+        //StartupAbort across the dialog's event loop, which segfaults on a
+        //real (xcb) platform.
         Chpwdialog->reject();
+        return;
     }
-    else
-        clean_up_and_quit ();
+
+    serr.clear();
+    serr.append (QObject::tr("Password unchanged."));
+    msgBox.setText(serr);
+    msgBox.exec();
+    Chpwdialog->reject();
 }
 
 void clean_up_and_quit ()
