@@ -148,6 +148,9 @@ incomplete and being tested. User feedback is welcome, as always.
 
 9. Edited the user manual.
 
+10. Inserted images are also encrypted along with the rest of the data, and resize to
+the width of the window if larger.
+
 Changes in version 4-0.1
 ------------------------
 1. Added the facility to encrypt user data. This is stored in a subdirectory
