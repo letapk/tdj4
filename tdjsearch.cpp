@@ -38,11 +38,25 @@ int inivecflag = 0;
         return;
     }
 
+    //a file that cannot be read (key mismatch, truncation, wrong store type)
+    //is skipped so the rest can still be searched; the names are reported at
+    //the end instead of silently dropping results
+    srchcorruptfiles.clear();
+
     search_list_notes();
     srchresults->append(tr("\n"));
     search_list_appts();
 
-    statustext->setText(tr("Search complete"));
+    if (srchcorruptfiles.isEmpty() == true) {
+        statustext->setText(tr("Search complete"));
+    }
+    else {
+        srchresults->append(tr("Warning: the following files could not be "
+                               "read and were skipped:\n%1")
+                            .arg(srchcorruptfiles.join("\n")));
+        statustext->setText(tr("Search complete - %n store(s) could not be read",
+                               "", srchcorruptfiles.size()));
+    }
 }
 
 void MainWindow::search_list_notes()
@@ -72,7 +86,7 @@ QFileInfoList list;
 
 void MainWindow::search_notes_file(QFileInfo fi, QStringList *result)
 {
-QTextDocument *doc;
+QTextDocument doc;
 QString s, s1, s2, s3, fname, Year, Month;
 int i;
 
@@ -81,16 +95,19 @@ int i;
     Year = fi.baseName().sliced(6, 4);//the year part of the filename
 
     TdjEncryptedFile store(m_crypto);
-    int openr = store.open(fi.filePath(), m_crypto.sessionKey());
-    if (openr == TdjFieldCorrupt)
-        return;//a corrupt file is skipped silently
+    int openr = store.open(fi.filePath(), m_crypto.sessionKey(), Tdj2Notes);
+    if (openr == TdjFieldCorrupt) {
+        srchcorruptfiles.append(fi.fileName());//reported once, after both passes
+        return;
+    }
     if (openr != TdjFieldOk) {
         *result += tr("");//file does not exist
         return;
     }
     TdjFieldSource &fs = store.source();
 
-    //a corrupt file is skipped silently - the rest of the files are still searched
+    //a file that breaks mid-stream is recorded and dropped (its readable
+    //prefix is not surfaced, so a truncated store cannot give partial hits)
     for (i = 1; i <= 31; i++) {
         QByteArray plain;
 
@@ -98,18 +115,20 @@ int i;
         int r = fs.readLen(len);
         if (r == TdjFieldEof)//file ends cleanly here
             break;
-        if (r == TdjFieldCorrupt)
+        if (r == TdjFieldCorrupt) {
+            srchcorruptfiles.append(fi.fileName());
             break;
+        }
         if (len == 0)//no note for this day
             continue;
 
-        if (fs.readBody(len, plain) == TdjFieldCorrupt)
+        if (fs.readBody(len, plain) == TdjFieldCorrupt) {
+            srchcorruptfiles.append(fi.fileName());
             break;
+        }
 
-        doc = new QTextDocument ();
-        doc->setHtml(QString::fromUtf8(plain));
-        s = doc->toPlainText();
-        delete doc;
+        doc.setHtml(QString::fromUtf8(plain));
+        s = doc.toPlainText();
 
         if (s.contains(srchtxt, Qt::CaseInsensitive) == true) {
             s1 = get_month_name(Month.toInt());
@@ -156,14 +175,17 @@ int i, row;
     Year = fi.baseName().sliced(13, 4);//the year part of the filename
 
     TdjEncryptedFile store(m_crypto);
-    int openr = store.open(fi.filePath(), m_crypto.sessionKey());
-    if (openr == TdjFieldCorrupt)
-        return;//a corrupt file is skipped silently
+    int openr = store.open(fi.filePath(), m_crypto.sessionKey(),
+                           Tdj2Appointments);
+    if (openr == TdjFieldCorrupt) {
+        srchcorruptfiles.append(fi.fileName());//reported once, after both passes
+        return;
+    }
     if (openr != TdjFieldOk)
         return;//file does not exist
     TdjFieldSource &fs = store.source();
 
-    //a corrupt file is skipped silently - the rest of the files are still searched
+    //a truncated/mixed store is recorded and dropped whole - no partial hits
     for (i = 1; i <= 31 && !corrupt; i++) {
          for(row = 0; row < 48 && !corrupt; row++) {
              QByteArray time, desc;
@@ -198,4 +220,6 @@ int i, row;
              }
          }
     }
+    if (corrupt == true)
+        srchcorruptfiles.append(fi.fileName());
 }

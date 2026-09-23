@@ -82,7 +82,7 @@ bool tdj_write_field(QByteArray &out, const QByteArray &plain,
     return true;
 }
 
-int tdj_read_field_len(QIODevice &f, qint32 &len)
+int tdj_read_field_len(QIODevice &f, qint32 &len, qint32 maxLen)
 {
     char lbuf[4];
     qint64 got = f.read(lbuf, 4);
@@ -92,7 +92,7 @@ int tdj_read_field_len(QIODevice &f, qint32 &len)
         return TdjFieldCorrupt;
 
     memcpy(&len, lbuf, 4);
-    if (len < 0 || len > kMaxFieldBytes)
+    if (len < 0 || len > maxLen)
         return TdjFieldCorrupt;
 
     return TdjFieldOk;
@@ -156,9 +156,10 @@ void tdj_append_field(QByteArray &out, const QByteArray &utf8)
     out.append(utf8);
 }
 
-int tdj_read_plain_body(QIODevice &f, qint32 len, QByteArray &out)
+int tdj_read_plain_body(QIODevice &f, qint32 len, QByteArray &out,
+                        qint32 maxLen)
 {
-    if (len < 0 || len > kMaxFieldBytes)
+    if (len < 0 || len > maxLen)
         return TdjFieldCorrupt;
     if (qint64(len) > f.bytesAvailable())
         return TdjFieldCorrupt;
@@ -232,7 +233,7 @@ int tdj2_read_salt(QIODevice &f, QByteArray &salt)
         return TdjFieldCorrupt;
     quint32 version;
     memcpy(&version, first.constData(), 4);
-    if (version != 1)
+    if (version != 1 && version != 2)
         return TdjFieldCorrupt;
     salt = first.sliced(5, 16);
     return TdjFieldOk;
@@ -325,7 +326,8 @@ void CryptoManager::setLegacyIv(const char *iv16)
 }
 
 int CryptoManager::readContainer(QIODevice &f, const char *key32,
-                                 QByteArray &plain)
+                                 QByteArray &plain, quint8 *fileType,
+                                 quint64 maxPlain)
 {
     //f is positioned after the magic (detect_format already consumed 4 bytes)
     unsigned char hdr[41];   //version(4)+fileType(1)+salt(16)+nonce(12)+plen(8)
@@ -334,13 +336,23 @@ int CryptoManager::readContainer(QIODevice &f, const char *key32,
 
     quint32 version;
     memcpy(&version, hdr, 4);
-    if (version != 1)
+    if (version != 1 && version != 2)
         return TdjFieldCorrupt;
+
+    quint8 type = hdr[4];
+    if (fileType)
+        *fileType = type;
 
     quint64 plen;
     memcpy(&plen, hdr + 33, 8);
-    const quint64 kMax = qint64(kMaxFieldBytes) + 16;   //cipher + GCM tag
-    if (plen < 16 || plen > kMax)                       //plen includes the tag
+    //the attachment store is its own big container; every other store is
+    //capped at kMaxFieldBytes (deepest bound between the container and the
+    //per-field readers)
+    if (maxPlain == 0)
+        maxPlain = (type == Tdj2Attachments) ? qint64(kMaxAttachmentStoreBytes)
+                                             : qint64(kMaxFieldBytes);
+    const quint64 kMax = maxPlain + 16;         //cipher + GCM tag
+    if (plen < 16 || plen > kMax)               //plen includes the tag
         return TdjFieldCorrupt;
 
     QByteArray cipher = f.read(qint64(plen));
@@ -370,6 +382,16 @@ int CryptoManager::readContainer(QIODevice &f, const char *key32,
 
     if (!err) err = gcry_cipher_setkey(hd, key32, 32);
     if (!err) err = gcry_cipher_setiv(hd, nonce, 12);
+    //v2+ containers authenticate the full 45-byte header ("TDJ2" magic +
+    //version/fileType/salt/nonce/plen) as GCM AAD, so no header byte can be
+    //flipped undetected. v1 containers did not; their tag covers the payload
+    //only, so they are decrypted exactly as before.
+    if (!err && version == 2) {
+        QByteArray aad;
+        aad.append("TDJ2", 4);
+        aad.append(reinterpret_cast<const char *>(hdr), 41);
+        err = gcry_cipher_authenticate(hd, aad.constData(), aad.size());
+    }
     if (!err) err = gcry_cipher_decrypt(hd, pt.data(), ptlen,
                                         cipher.constData(), ptlen);
     if (!err) {
@@ -400,8 +422,23 @@ bool CryptoManager::writeContainerSigned(const QString &path, quint8 fileType,
                                         GCRY_CIPHER_MODE_GCM, 0);
     if (err) return false;
 
+    //v2 containers make the whole header part of the authenticated data, so
+    //version/fileType/salt/nonce/plen cannot be altered without breaking the
+    //GCM tag. The header is laid out before the ciphertext, but GCM allows
+    //the AAD to be fed at any point before the tag is produced.
+    QByteArray header;
+    header.append("TDJ2", 4);
+    const quint32 version = 2;
+    header.append(reinterpret_cast<const char *>(&version), 4);
+    header.append(char(fileType));
+    header.append(m_dbSalt, 16);
+    header.append(nonce, 12);
+    const quint64 plen = quint64(plain.size()) + 16;
+    header.append(reinterpret_cast<const char *>(&plen), 8);
+
     if (!err) err = gcry_cipher_setkey(hd, key32, 32);
     if (!err) err = gcry_cipher_setiv(hd, nonce, 12);
+    if (!err) err = gcry_cipher_authenticate(hd, header.constData(), header.size());
     if (!err) err = gcry_cipher_encrypt(hd, cipher.data(), plain.size(),
                                         plain.constData(), plain.size());
 
@@ -412,15 +449,7 @@ bool CryptoManager::writeContainerSigned(const QString &path, quint8 fileType,
     if (err)
         return false;
 
-    QByteArray body;
-    body.append("TDJ2", 4);
-    quint32 version = 1;
-    body.append(reinterpret_cast<const char *>(&version), 4);
-    body.append(char(fileType));
-    body.append(m_dbSalt, 16);
-    body.append(nonce, 12);
-    quint64 plen = quint64(plain.size()) + 16;
-    body.append(reinterpret_cast<const char *>(&plen), 8);
+    QByteArray body = header;
     body.append(cipher);
     body.append(tag, 16);
 
@@ -431,6 +460,115 @@ bool CryptoManager::writeContainer(const QString &path, quint8 fileType,
                                    const QByteArray &plain, int inivecflag)
 {
     return writeContainerSigned(path, fileType, writeKey32(inivecflag), plain);
+}
+
+// ---------------------------------------------------------------------------
+// Re-encryption transaction manifest ("Reencrypt.pending" in the data dir).
+// A password change or migration promotes a whole store set from the old key
+// to the new one file by file; a power loss between the renames used to leave
+// a mixed old/new-key set with no way to recover. The manifest is written
+// before any original is touched (state "committing") and rewritten atomically
+// as "committed" only after EVERY pair has been promoted; only then are the
+// .bak backups deleted. Startup recovery then works from the on-disk state:
+//   committing  -> roll back to the old key (restore .bak over promoted
+//                  files, drop the .new copies and any fresh-db anchors);
+//   committed   -> finish the change (drop backups and stray .new).
+// The third column records whether the original existed when the transaction
+// began, so a rolled-back fresh-database anchor (which never had an original)
+// is removed rather than left behind under the abandoned key.
+// ---------------------------------------------------------------------------
+namespace {
+const char kReencryptMagic[] = "tdj4-reencrypt-v1";
+const char kReencryptFile[] = "Reencrypt.pending";
+}
+
+bool tdj_reencrypt_write_manifest(const QString &dir, const QStringList &origs,
+                                  const QStringList &news, bool committed)
+{
+    if (origs.size() != news.size())
+        return false;
+
+    QString text = QLatin1String(kReencryptMagic);
+    text += '\n';
+    text += committed ? QLatin1String("committed\n")
+                      : QLatin1String("committing\n");
+    for (int i = 0; i < origs.size(); i++) {
+        text += origs.at(i);
+        text += '\t';
+        text += news.at(i);
+        text += '\t';
+        text += QFile::exists(origs.at(i)) ? '1' : '0';
+        text += '\n';
+    }
+    return tdj_write_atomic_file(dir + '/' + QLatin1String(kReencryptFile),
+                                 text.toUtf8());
+}
+
+void tdj_reencrypt_clear_manifest(const QString &dir)
+{
+    QFile::remove(dir + '/' + QLatin1String(kReencryptFile));
+}
+
+bool tdj_reencrypt_recover(const QString &dir)
+{
+    const QString manifestPath = dir + '/' + QLatin1String(kReencryptFile);
+    QFile f(manifestPath);
+    if (!QFile::exists(manifestPath))
+        return true;//nothing pending
+    if (!f.open(QIODevice::ReadOnly))
+        return false;//present but unreadable -> manual intervention
+
+    const QList<QByteArray> lines = f.readAll().split('\n');
+    f.close();
+    if (lines.size() < 2)
+        return false;
+    if (QString::fromUtf8(lines.at(0).trimmed()) != QLatin1String(kReencryptMagic))
+        return false;
+
+    const QByteArray state = lines.at(1).trimmed();
+    const bool committed = (state == "committed");
+    if (!committed && state != "committing")
+        return false;
+
+    for (int i = 2; i < lines.size(); i++) {
+        const QString line = QString::fromUtf8(lines.at(i)).trimmed();
+        if (line.isEmpty())
+            continue;
+        const QStringList cols = line.split('\t');
+        if (cols.size() != 3)
+            return false;
+        const QString &orig = cols.at(0);
+        const QString &newe = cols.at(1);
+        const bool origExisted = (cols.at(2) == "1");
+        if (committed) {
+            //every original already carries the new key: finish by dropping
+            //the backup and any stray .new copy
+            QFile::remove(orig + ".bak");
+            QFile::remove(newe);
+        }
+        else {
+            //an interrupted change: return to the pre-change (old-key) state.
+            //A promoted file has its original preserved in .bak and its new
+            //key copy sitting at the original path - drop that copy first
+            //(rename never overwrites an existing target), then restore the
+            //backup. An untouched one has not been renamed, so only its .new
+            //copy is dropped. A fresh-database anchor has no original, so its
+            //promoted file is removed - "no file" is that store's state.
+            if (QFile::exists(orig + ".bak")) {
+                QFile::remove(orig);
+                QFile::rename(orig + ".bak", orig);
+            }
+            else if (origExisted) {
+                QFile::remove(newe);
+            }
+            else {
+                QFile::remove(orig);
+            }
+            QFile::remove(newe);
+        }
+    }
+    QFile::remove(manifestPath);
+    return true;
 }
 
 int CryptoManager::scanDbState(const QString &dirPath)
@@ -503,7 +641,8 @@ TdjEncryptedFile::TdjEncryptedFile(CryptoManager &crypto)
 {
 }
 
-int TdjEncryptedFile::open(const QString &path, const char *key32)
+int TdjEncryptedFile::open(const QString &path, const char *key32,
+                           quint8 expectedType)
 {
     if (!QFileInfo::exists(path))
         return TdjFieldEof;                    //a store that is simply absent
@@ -514,7 +653,13 @@ int TdjEncryptedFile::open(const QString &path, const char *key32)
     int fmt = tdj_detect_format(m_file);
     if (fmt == 1) {//TDJ2: decrypt the whole payload, then read plain fields
         QByteArray plain;
-        if (m_crypto.readContainer(m_file, key32, plain) != TdjFieldOk)
+        if (m_crypto.readContainer(m_file, key32, plain,
+                                   &m_fileType) != TdjFieldOk)
+            return TdjFieldCorrupt;
+        //a container that does not carry the type this store expects is
+        //corrupt for this purpose (e.g. a Notes month file opened as an
+        //appointment month)
+        if (expectedType != 0 && m_fileType != expectedType)
             return TdjFieldCorrupt;
         m_body = plain;
         m_buf.setBuffer(&m_body);
@@ -648,6 +793,7 @@ void StorageManager::clearAll()
     }
     m_maxAnns = 0;
     m_attachments.clear();
+    m_attachmentBytes = 0;
 }
 
 int StorageManager::loadJournal(CryptoManager &crypto, const QString &path,
@@ -659,7 +805,7 @@ int StorageManager::loadJournal(CryptoManager &crypto, const QString &path,
     }
 
     TdjEncryptedFile store(crypto);
-    int r = store.open(path, crypto.readKey32(inivecflag));
+    int r = store.open(path, crypto.readKey32(inivecflag), Tdj2Notes);
     if (r != TdjFieldOk)
         return r;//Eof (no file) or Corrupt
     TdjFieldSource &fs = store.source();
@@ -748,7 +894,7 @@ int StorageManager::loadApptMonth(CryptoManager &crypto, const QString &path,
     }
 
     TdjEncryptedFile store(crypto);
-    int r = store.open(path, crypto.readKey32(inivecflag));
+    int r = store.open(path, crypto.readKey32(inivecflag), Tdj2Appointments);
     if (r != TdjFieldOk)
         return r;
     TdjFieldSource &fs = store.source();
@@ -813,7 +959,7 @@ int StorageManager::loadDailyApps(CryptoManager &crypto, const QString &path)
     }
 
     TdjEncryptedFile store(crypto);
-    int r = store.open(path, crypto.readKey32(0));
+    int r = store.open(path, crypto.readKey32(0), Tdj2DailyAppts);
     if (r != TdjFieldOk)
         return r;
     TdjFieldSource &fs = store.source();
@@ -873,7 +1019,7 @@ int StorageManager::loadAnns(CryptoManager &crypto, const QString &path)
     }
 
     TdjEncryptedFile store(crypto);
-    int r = store.open(path, crypto.readKey32(0));
+    int r = store.open(path, crypto.readKey32(0), Tdj2Anns);
     if (r != TdjFieldOk)
         return r;
     TdjFieldSource &fs = store.source();
@@ -947,7 +1093,7 @@ int StorageManager::loadContacts(CryptoManager &crypto, const QString &path,
 {
     groups.clear();
     TdjEncryptedFile store(crypto);
-    int r = store.open(path, crypto.readKey32(0));
+    int r = store.open(path, crypto.readKey32(0), Tdj2Contacts);
     if (r != TdjFieldOk)
         return r;
     TdjFieldSource &fs = store.source();
@@ -1031,7 +1177,7 @@ int StorageManager::loadLists(CryptoManager &crypto, const QString &path,
 {
     lists.clear();
     TdjEncryptedFile store(crypto);
-    int r = store.open(path, crypto.readKey32(0));
+    int r = store.open(path, crypto.readKey32(0), Tdj2Lists);
     if (r != TdjFieldOk)
         return r;
     TdjFieldSource &fs = store.source();
@@ -1107,30 +1253,39 @@ int StorageManager::loadAttachments(CryptoManager &crypto, const QString &path,
                                     int inivecflag)
 {
     m_attachments.clear();
+    m_attachmentBytes = 0;
 
     TdjEncryptedFile store(crypto);
-    int r = store.open(path, crypto.readKey32(inivecflag));
+    int r = store.open(path, crypto.readKey32(inivecflag), Tdj2Attachments);
     if (r != TdjFieldOk)
         return r;//Eof (no store yet) or Corrupt
 
     TdjFieldSource &fs = store.source();
     while (true) {
         qint32 len;
-        int k = fs.readLen(len);
+        //the id field is bounded by kMaxAttachmentId, the image body by
+        //kMaxAttachmentBytes: a store must use its own ceilings, not the 8 MiB
+        //generic field limit
+        int k = fs.readLen(len, kMaxAttachmentId);
         if (k == TdjFieldEof)
             break;//clean end
-        if (k == TdjFieldCorrupt || len > kMaxFieldBytes)
+        if (k == TdjFieldCorrupt)
             return TdjFieldCorrupt;
         QByteArray id;
-        if (fs.readBody(len, id) == TdjFieldCorrupt)
+        if (fs.readBody(len, id, kMaxAttachmentId) == TdjFieldCorrupt)
             return TdjFieldCorrupt;
-        k = fs.readLen(len);
-        if (k == TdjFieldEof || k == TdjFieldCorrupt || len > kMaxFieldBytes)
+        k = fs.readLen(len, kMaxAttachmentBytes);
+        if (k == TdjFieldEof || k == TdjFieldCorrupt)
             return TdjFieldCorrupt;
         QByteArray bytes;
-        if (fs.readBody(len, bytes) == TdjFieldCorrupt)
+        if (fs.readBody(len, bytes, kMaxAttachmentBytes) == TdjFieldCorrupt)
+            return TdjFieldCorrupt;
+        //the container cap already bounds the catalogue below
+        //kMaxAttachmentStoreBytes; the bookkeeping must match that geometry
+        if (m_attachmentBytes + qint64(bytes.size()) > kMaxAttachmentStoreBytes)
             return TdjFieldCorrupt;
         m_attachments.insert(QString::fromUtf8(id), bytes);
+        m_attachmentBytes += qint64(bytes.size());
     }
     return TdjFieldOk;
 }
@@ -1150,19 +1305,39 @@ bool StorageManager::saveAttachments(CryptoManager &crypto, const QString &path,
         tdj_append_field(body, i.value());
         ++i;
     }
+    if (body.size() > kMaxAttachmentStoreBytes)
+        return false;//the container limit could never be read back
     return TdjEncryptedFile::write(crypto, path, Tdj2Attachments, body,
                                    inivecflag);
+}
+
+void StorageManager::addAttachment(const QString &id, const QByteArray &bytes)
+{
+    //replacing an id subtracts the old bytes first so the running total is
+    //never inflated by stale content
+    QHash<QString, QByteArray>::const_iterator old = m_attachments.constFind(id);
+    if (old != m_attachments.constEnd())
+        m_attachmentBytes -= qint64(old.value().size());
+    m_attachments.insert(id, bytes);
+    m_attachmentBytes += qint64(bytes.size());
 }
 
 QString StorageManager::putAttachment(const QByteArray &bytes)
 {
     if (bytes.isEmpty() || bytes.size() > kMaxAttachmentBytes)
         return QString();
+    if (m_attachmentBytes + qint64(bytes.size()) > kMaxAttachmentStoreBytes)
+        return QString();//the catalogue as a whole would exceed its container
 
+    //an id that already holds identical bytes is a no-op (same address); an
+    //id carrying different bytes - impossible without a SHA-256 collision -
+    //would be replaced, so the total add is still bounded above
     QString id = "tdj-image:"
         + QString::fromLatin1(QCryptographicHash::hash(bytes,
                             QCryptographicHash::Sha256).toHex());
-    m_attachments.insert(id, bytes);
+    if (m_attachments.contains(id))
+        return m_attachments.value(id) == bytes ? id : QString();
+    addAttachment(id, bytes);
     return id;
 }
 
@@ -1188,10 +1363,14 @@ QSet<QString> StorageManager::attachmentIds() const
 
 void StorageManager::pruneAttachments(const QSet<QString> &keep)
 {
+    qint64 removed = 0;
     QMutableHashIterator<QString, QByteArray> i(m_attachments);
     while (i.hasNext()) {
         i.next();
-        if (!keep.contains(i.key()))
+        if (!keep.contains(i.key())) {
+            removed += qint64(i.value().size());
             i.remove();
+        }
     }
+    m_attachmentBytes -= removed;
 }

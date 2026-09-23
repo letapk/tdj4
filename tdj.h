@@ -207,6 +207,7 @@ class MainWindow : public QMainWindow
     QPushButton *srchbut;
     QTextEdit *srchresults;
     QString srchtxt;
+    QStringList srchcorruptfiles;//stores that could not be read during a search
     QTextCursor srchcursor;
 
     //preferences
@@ -441,6 +442,7 @@ public slots:
     void test_password ();
     void reencrypt_all_stores ();
     void reload_current_month ();
+    void set_data_filenames ();
 
     void confirm_phrase();
     void reject_phrase();

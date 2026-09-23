@@ -86,12 +86,11 @@ void MainWindow::del_list ()
 {
 int j;
 QTreeWidgetItem *above, *below;
-QTextDocument *doc;
-QString s;
+    QTextDocument doc;
+    QString s;
 
-    doc = new QTextDocument ();
-    doc->setHtml(cur_list->text(1));
-    s = doc->toPlainText();
+    doc.setHtml(cur_list->text(1));
+    s = doc.toPlainText();
 
     if (s.length() != 0){
         statustext->setText(tr("Note contains data. Please delete that, first."));

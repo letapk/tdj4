@@ -505,9 +505,11 @@ void MainWindow::reencrypt_all_stores ()
 //
 //Phase 1 decrypts each store with the old key and writes the new ciphertext
 //to `*.new`; nothing is modified yet. Phase 2 promotes every `.new` over the
-//original (the original is first preserved as `*.bak`). Any failure aborts
-//before a single rename so a crash or error can never leave a mixed-key
-//state.
+//original (the original is first preserved as `*.bak`). A crash in the middle
+//of phase 2 cannot corrupt the database: the Reencrypt.pending manifest
+//(written with state "committing" before the first rename, then atomically
+//rewritten as "committed" once every pair is promoted) lets a later start
+//roll the set back to the old key or finish the change deterministically.
 QStringList newFiles, origFiles;
 QDir dir;
 QStringList fltr;
@@ -579,6 +581,18 @@ bool ok = true;
         return;
     }
 
+    //record the transaction before touching a single original. A failure here
+    //(e.g. full disk) drops the untouched `.new` copies; the originals are
+    //still under the old key throughout. (A `.new` accidentally left behind
+    //without a manifest is inert - no loader reads it.)
+    if (tdj_reencrypt_write_manifest(Homepath, origFiles, newFiles,
+                                     false) == false) {
+        for (i = 0; i < newFiles.size(); i++)
+            QFile::remove(newFiles.at(i));
+        crypt_error_notification ("Error in password re-encryption.");
+        return;
+    }
+
     //phase 2: commit - original -> *.bak, *.new -> original
     for (i = 0; i < newFiles.size() && ok; i++) {
         if (QFile::exists(origFiles.at(i)))
@@ -589,9 +603,19 @@ bool ok = true;
                 ok = false;
     }
 
+    if (ok == true) {
+        //switch the manifest to "committed" BEFORE deleting backups, so a
+        //crash between the renames and the cleanup resolves on a later start
+        //by simply dropping the backups; the set is already uniformly new-key
+        if (tdj_reencrypt_write_manifest(Homepath, origFiles, newFiles,
+                                         true) == false)
+            ok = false;
+    }
+
     if (ok == true) {//success: back-ups are no longer needed
         for (i = 0; i < newFiles.size(); i++)
             QFile::remove(origFiles.at(i) + ".bak");
+        tdj_reencrypt_clear_manifest(Homepath);
     }
     else {
         //roll back: restore every `.bak` over its original, drop stray `.new`
@@ -602,6 +626,7 @@ bool ok = true;
                 QFile::remove(origFiles.at(i));
             QFile::remove(newFiles.at(i));
         }
+        tdj_reencrypt_clear_manifest(Homepath);
         crypt_error_notification ("Error in password re-encryption.");
     }
 
@@ -614,7 +639,6 @@ QDir dir;
 QStringList fltr;
 QFileInfoList list;
 QString txtfile, s, fname, Year, Month, path;
-QTextDocument *doc;
 bool ok;
 
     //file to put the exported text
@@ -654,10 +678,9 @@ bool ok;
             if (m_store.note(j).data.isEmpty() == false) {
                 out << j << " " << get_month_name(Month.toInt()) << " " << Year << "\n";
 
-                doc = new QTextDocument ();
-                doc->setHtml(m_store.note(j).data);
-                s = doc->toPlainText();
-                delete doc;
+                QTextDocument doc;
+                doc.setHtml(m_store.note(j).data);
+                s = doc.toPlainText();
 
                 out << s;
                 out << "\n";
@@ -680,7 +703,6 @@ void MainWindow::save_lists_as_text()
 {
 QString txtfile, s;
 QTreeWidgetItem *it;
-QTextDocument *doc;
 int i, toplevelcount;
 bool ok;
 
@@ -700,10 +722,9 @@ bool ok;
     for (i = 0; i < toplevelcount; i++){
         it = listree->topLevelItem(i);
 
-        doc = new QTextDocument ();
-        doc->setHtml(it->text(1));
-        s = doc->toPlainText();
-        delete doc;
+        QTextDocument doc;
+        doc.setHtml(it->text(1));
+        s = doc.toPlainText();
 
         out << "\nName of Note:";
         out << s;

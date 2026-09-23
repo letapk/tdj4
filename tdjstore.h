@@ -79,6 +79,17 @@ const qint32 kMaxFieldBytes = 8 * 1024 * 1024;
 //into the data dir as plaintext - that copy is what T2 eliminates)
 const qint32 kMaxAttachmentBytes = 16 * 1024 * 1024;
 
+//the encrypted-attachment STORE is a single TDJ2 container (the whole
+//catalogue is one encrypted body), so it gets its own container/plaintext
+//ceiling, separate from the 8 MiB that bounds every other store. The sum of
+//all stored image bytes must fit under this, or the catalogue could not be
+//read back. putAttachment() enforces it; saveAttachments() guards it.
+const qint32 kMaxAttachmentStoreBytes = 64 * 1024 * 1024;
+
+//attachment content-addresses are "tdj-image:" + 64 hex chars; a short cap
+//keeps a corrupt file from claiming a huge id field inside the store.
+const qint32 kMaxAttachmentId = 512;
+
 //extract every `tdj-image:<id>` reference from an editor-HTML string. Used by
 //the orphan scan: an attachment is only kept while some stored content still
 //references it.
@@ -104,19 +115,37 @@ int tdj_next_appointment_minutes(const int times[48], int nowMinute);
 enum TdjFieldResult { TdjFieldEof = 0, TdjFieldOk = 1, TdjFieldCorrupt = -1 };
 
 // 0=missing file, 1=TDJ2, 2=legacy
-int  tdj_detect_format(QIODevice &f);
+int tdj_detect_format(QIODevice &f);
+
+//transaction manifest for re-encryption crash recovery. reencrypt_all_stores()
+//writes Reencrypt.pending (state "committing") with the old/new file pairs
+//before promoting any original, rewrites it atomically as "committed" once
+//every pair is promoted, clears the *.bak files, and only then removes the
+//manifest. On startup tdj_reencrypt_recover() reads whatever state the disk
+//shows and drives a deterministic rollback (committing) or completion
+//(committed), so a power loss mid-commit can never leave a mixed-key database.
+bool tdj_reencrypt_write_manifest(const QString &dir, const QStringList &origs,
+                                  const QStringList &news, bool committed);
+void tdj_reencrypt_clear_manifest(const QString &dir);
+bool tdj_reencrypt_recover(const QString &dir);
 
 // legacy CBC codec (QIODevice& so QBuffer works for TDJ2 callers too)
 // each call uses its own AES-128-CBC handle: no shared cipher state, so the
 // same IV is never reused for unrelated fields and the module is reentrant
-int  tdj_read_field_len(QIODevice &f, qint32 &len);
+//read a 4-byte length prefix, bounded by `maxLen` (default kMaxFieldBytes).
+//The attachment store passes its own larger per-field ceiling (kMaxAttachmentId
+//for ids, kMaxAttachmentBytes for image bodies).
+int  tdj_read_field_len(QIODevice &f, qint32 &len, qint32 maxLen = kMaxFieldBytes);
 int  tdj_read_field_body(QIODevice &f, qint32 len, QByteArray &out,
                          const char *key, const char *iv);
 bool tdj_write_field(QByteArray &out, const QByteArray &plain,
                      const char *key, const char *iv);
 
 // plain (unencrypted) field I/O used by the TDJ2 container path
-int  tdj_read_plain_body(QIODevice &f, qint32 len, QByteArray &out);
+//read a length-prefixed plain (container-internal) field, bounded by `maxLen`.
+//Same ceiling rules as tdj_read_field_len: the attachment store raises it.
+int  tdj_read_plain_body(QIODevice &f, qint32 len, QByteArray &out,
+                         qint32 maxLen = kMaxFieldBytes);
 void tdj_append_field(QByteArray &out, const QByteArray &utf8);
 
 //atomically replace `path` with `body` (temp file + rename), returns false on
@@ -151,11 +180,12 @@ public:
     const char *key = nullptr;//legacy CBC key / IV are only used for format 2
     const char *iv = nullptr;
 
-    int readLen(qint32 &len) { return tdj_read_field_len(*dev, len); }
-    int readBody(qint32 len, QByteArray &out)
+    int readLen(qint32 &len, qint32 cap = kMaxFieldBytes)
+    { return tdj_read_field_len(*dev, len, cap); }
+    int readBody(qint32 len, QByteArray &out, qint32 cap = kMaxFieldBytes)
     {
         if (format == 1)
-            return tdj_read_plain_body(*dev, len, out);
+            return tdj_read_plain_body(*dev, len, out, cap);
         return tdj_read_field_body(*dev, len, out,
                                    key ? key : "", iv ? iv : "");
     }
@@ -208,8 +238,13 @@ public:
     const char *legacyKey() const { return m_legacyKey; }
     const char *legacyIv() const { return m_legacyIv; }
 
-    //TDJ2 container
-    int  readContainer(QIODevice &f, const char *key32, QByteArray &plain);
+    //TDJ2 container. `fileType` (when non-null) receives the container's
+    //file-type byte; `maxPlain` bounds the decrypted payload and defaults to
+    //kMaxFieldBytes, except the attachment store (file type 7) which is
+    //allowed to reach kMaxAttachmentStoreBytes.
+    int  readContainer(QIODevice &f, const char *key32, QByteArray &plain,
+                       quint8 *fileType = nullptr,
+                       quint64 maxPlain = 0);
     //write container with the key selected by inivecflag (writeKey32); used
     //by TdjEncryptedFile::write
     bool writeContainer(const QString &path, quint8 fileType,
@@ -250,10 +285,13 @@ public:
     //  TdjFieldOk      ready; source() may be read field by field
     //  TdjFieldEof     the file does not exist (not an error - silently skip)
     //  TdjFieldCorrupt exists but cannot be read / decrypted / validated
-    int open(const QString &path, const char *key32);
+    //When `expectedType` is non-zero the container's file-type byte must
+    //match it (catches a Notes store mislabelled/open as another type).
+    int open(const QString &path, const char *key32, quint8 expectedType = 0);
 
     TdjFieldSource &source() { return m_fs; }
     int format() const { return m_fs.format; }
+    quint8 fileType() const { return m_fileType; }
 
     //serialise-free writer: encrypt `body` as a TDJ2 container at `path`,
     //atomically. `path` must already include any ".new" re-encryption suffix.
@@ -266,6 +304,7 @@ private:
     QFile m_file;
     QByteArray m_body;         //owns the decrypted TDJ2 payload
     QBuffer m_buf;             //field device over m_body
+    quint8 m_fileType = 0;     //container file-type byte, 0 if never opened
 };
 
 // ---------------------------------------------------------------------------
@@ -327,22 +366,28 @@ public:
     int  loadAttachments(CryptoManager &crypto, const QString &path, int inivecflag);
     bool saveAttachments(CryptoManager &crypto, const QString &path, int inivecflag);
     //store `bytes` and return its id, or an empty string when refused
-    //(empty input or larger than kMaxAttachmentBytes); overwriting an id
-    //with identical bytes is a no-op
+    //(empty input, larger than kMaxAttachmentBytes, or the catalogue total
+    //would exceed kMaxAttachmentStoreBytes); overwriting an id with identical
+    //bytes is a no-op
     QString putAttachment(const QByteArray &bytes);
     bool getAttachment(const QString &id, QByteArray &out) const;
     QSet<QString> attachmentIds() const;
     int  attachmentCount() const { return m_attachments.size(); }
+    //total bytes stored in the catalogue, capped at kMaxAttachmentStoreBytes
+    qint64 attachmentBytes() const { return m_attachmentBytes; }
     //drop every stored attachment whose id is not in `keep`
     void pruneAttachments(const QSet<QString> &keep);
 
 private:
+    void addAttachment(const QString &id, const QByteArray &bytes);
+
     Note m_note[32];
     Appointment m_appt[32];   //index 1..31 mirrors the note array
     Appointment m_daily;      //today's repeating appointments
     Anniversary m_ann[367];   //index 1..366
     int m_maxAnns = 0;
     QHash<QString, QByteArray> m_attachments;
+    qint64 m_attachmentBytes = 0;
 };
 
 #endif // TDJSTORE_H

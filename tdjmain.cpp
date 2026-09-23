@@ -25,6 +25,8 @@ email                : letapk@gmail.com
 
 #include "tdj.h"
 
+extern void crypt_error_notification (const char *errstr);
+
 //the six data models (notes, appointments, the repeating-appointments day,
 //anniversaries) live in StorageManager MainWindow::m_store - no file-scope
 //buffers or extern chains anywhere in the GUI
@@ -71,6 +73,19 @@ int i;
 
     //check for the tdj data directory and create it if required
     check_qtdata_dir();
+
+    //complete or roll back a password re-encryption that was interrupted (a
+    //Reencrypt.pending manifest is present). Must run before any store is
+    //opened; on failure the database may be under an unknown key -> stop.
+    if (tdj_reencrypt_recover(userpath) == false) {
+        QMessageBox msgBox;
+        msgBox.setText (QObject::tr("An unfinished password re-encryption could "
+                                    "not be recovered automatically. The data "
+                                    "files in the data directory may need manual "
+                                    "attention. The program will now terminate."));
+        msgBox.exec();
+        return 1;
+    }
 
     //before constructing the mainwindow check if a lockfile is present
     Lockfilename.append (userpath);
@@ -761,10 +776,14 @@ int inivecflag = 0;
 
     //persist the attachment store and drop orphaned images only after an
     //import or an emptied note marked it dirty (the orphan scan reads every
-    //month file, so it must not run on every tab switch)
+    //month file, so it must not run on every tab switch). A failed write
+    //keeps the dirty flag so the next save retries it, and tells the user.
     if (m_attachmentsDirty) {
         prune_orphan_attachments ();
-        m_store.saveAttachments (m_crypto, Attachmentsfilename, 0);
+        if (m_store.saveAttachments (m_crypto, Attachmentsfilename, 0) == false) {
+            crypt_error_notification ("Error in writing attachment data.");
+            return;
+        }
         m_attachmentsDirty = false;
     }
 }
@@ -792,7 +811,7 @@ void MainWindow::shownote()
 {
 int i;
 QTextStream *in;
-QTextDocument *doc;
+QTextDocument doc;
 QString s;
 
 
@@ -804,10 +823,9 @@ QString s;
     note_to_show.append(import_legacy_images(m_store.note(date_to_show).data));
 
     s.clear();
-    doc = new QTextDocument ();
-    doc->setHtml(note_to_show);
+    doc.setHtml(note_to_show);
     //strip HTML formatting
-    s = doc->toPlainText();
+    s = doc.toPlainText();
     //all this to find the actual length of the note
     i = s.length();
 
